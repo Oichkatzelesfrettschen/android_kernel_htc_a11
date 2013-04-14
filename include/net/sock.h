@@ -2043,7 +2043,7 @@ static inline void sock_recv_ts_and_drops(struct msghdr *msg, struct sock *sk,
  * Currently only depends on SOCK_TIMESTAMPING* flags. Returns error code if
  * parameters are invalid.
  */
-int sock_tx_timestamp(struct sock *sk, __u8 *tx_flags);
+void sock_tx_timestamp(struct sock *sk, __u8 *tx_flags);
 
 /**
  * sk_eat_skb - Release a skb if it is no longer needed
