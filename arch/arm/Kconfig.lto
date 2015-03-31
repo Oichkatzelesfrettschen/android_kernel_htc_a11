@@ -2,6 +2,7 @@ config LTO_CLANG_THIN
 	bool "Clang ThinLTO for vmlinux"
 	depends on ARCH_MSM8226 && !FUNCTION_TRACER
 	default n
+	select LTO
 	help
 	  Compile the kernel to LLVM bitcode and link vmlinux through one
 	  relocatable ThinLTO link in ld.lld. That prelink rebuilds the
