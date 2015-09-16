@@ -220,7 +220,9 @@ struct tcf_proto {
 
 struct qdisc_skb_cb {
 	unsigned int		pkt_len;
-	unsigned char		data[24];
+	u16			_pad;
+	u16			tc_classid;
+	unsigned char		data[20];
 };
 
 static inline void qdisc_cb_private_validate(const struct sk_buff *skb, int sz)
