@@ -125,16 +125,12 @@ static int __init prandom_init(void)
 }
 core_initcall(prandom_init);
 
-/*
- *	Generate better values after random number generator
- *	is fully initialized.
- */
-static int __init prandom_reseed(void)
+void prandom_seed_full_state(struct rnd_state __percpu *pcpu_state)
 {
 	int i;
 
 	for_each_possible_cpu(i) {
-		struct rnd_state *state = &per_cpu(net_rand_state,i);
+		struct rnd_state *state = per_cpu_ptr(pcpu_state, i);
 		u32 seeds[3];
 
 		get_random_bytes(&seeds, sizeof(seeds));
@@ -145,6 +141,15 @@ static int __init prandom_reseed(void)
 		/* mix it in */
 		prandom_u32_state(state);
 	}
+}
+
+/*
+ *	Generate better values after random number generator
+ *	is fully initialized.
+ */
+static int __init prandom_reseed(void)
+{
+	prandom_seed_full_state(&net_rand_state);
 	return 0;
 }
 late_initcall(prandom_reseed);

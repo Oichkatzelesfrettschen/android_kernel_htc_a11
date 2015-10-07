@@ -86,6 +86,7 @@ void prandom_seed(u32 seed);
 #define srandom32(seed) prandom_seed(seed)
 
 u32 prandom_u32_state(struct rnd_state *);
+void prandom_seed_full_state(struct rnd_state __percpu *pcpu_state);
 
 /*
  * Handle minimum values for seeds
