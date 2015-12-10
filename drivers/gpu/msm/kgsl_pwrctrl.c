@@ -1063,7 +1063,7 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 	pwr->power_flags = 0;
 
 	pwr->idle_needed = pdata->idle_needed;
-	pwr->interval_timeout = pdata->idle_timeout;
+	pwr->interval_timeout = msecs_to_jiffies(pdata->idle_timeout);
 	pwr->strtstp_sleepwake = pdata->strtstp_sleepwake;
 	pwr->ebi1_clk = clk_get(&pdev->dev, "bus_clk");
 	if (IS_ERR(pwr->ebi1_clk))
@@ -1588,7 +1588,8 @@ int kgsl_active_count_wait(struct kgsl_device *device, int count)
 		int ret;
 		kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 		ret = wait_event_timeout(device->active_cnt_wq,
-			_check_active_count(device, count), HZ);
+			_check_active_count(device, count),
+			msecs_to_jiffies(1000));
 		kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 		result = ret == 0 ? -ETIMEDOUT : 0;
 	}
