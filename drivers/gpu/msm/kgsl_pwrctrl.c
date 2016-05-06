@@ -445,7 +445,6 @@ static int kgsl_pwrctrl_idle_timer_store(struct device *dev,
 	unsigned int val = 0;
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct kgsl_pwrctrl *pwr;
-	const long div = 1000/HZ;
 	int ret;
 
 	if (device == NULL)
@@ -458,9 +457,8 @@ static int kgsl_pwrctrl_idle_timer_store(struct device *dev,
 
 	kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 
-	
-	val /= div;
-	pwr->interval_timeout = val;
+	/* The attribute carries milliseconds; interval_timeout holds jiffies. */
+	pwr->interval_timeout = msecs_to_jiffies(val);
 
 	kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 
@@ -472,12 +470,12 @@ static int kgsl_pwrctrl_idle_timer_show(struct device *dev,
 					char *buf)
 {
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
-	int mul = 1000/HZ;
+
 	if (device == NULL)
 		return 0;
-	
-	return snprintf(buf, PAGE_SIZE, "%d\n",
-		device->pwrctrl.interval_timeout * mul);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+		jiffies_to_msecs(device->pwrctrl.interval_timeout));
 }
 
 static int kgsl_pwrctrl_pmqos_latency_store(struct device *dev,
