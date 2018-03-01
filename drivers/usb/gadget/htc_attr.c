@@ -56,7 +56,7 @@ static struct usb_string_node usb_string_array[] = {
 	},
 	{
 		.usb_function_flag = 1 << USB_FUNCTION_ADB,
-		.name = "adb",
+		.name = "ffs",
 	},
 	{
 		.usb_function_flag = 1 << USB_FUNCTION_RNDIS,
@@ -459,7 +459,7 @@ int android_switch_function(unsigned func)
 					pr_err("android_switch_function: Cannot add %s\n", f->name);
 			}
 
-		} else if ((func & (1 << USB_FUNCTION_ADB)) && !strcmp(f->name, "adb")) {
+		} else if ((func & (1 << USB_FUNCTION_ADB)) && !strcmp(f->name, "ffs")) {
 			if (func == ((1 << USB_FUNCTION_UMS) | (1 << USB_FUNCTION_ADB)))
 				fadb = f;
 			else {
@@ -645,7 +645,7 @@ static void do_switch_adb_work(struct work_struct *work)
 		call_us_ret = call_usermodehelper(exec_path[0],
 			argv_stop, envp, UMH_WAIT_PROC);
 	}
-	htc_usb_enable_function("adb", enable_adb);
+	htc_usb_enable_function("ffs", enable_adb);
 }
 static int android_switch_setup(struct usb_gadget *gadget,
 		const struct usb_ctrlrequest *c)
