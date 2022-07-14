@@ -1960,6 +1960,7 @@ static struct file *do_tmpfile(int dfd, const char *pathname,
 	struct dentry *dentry, *child;
 	struct inode *dir;
 	struct file *filp = NULL;
+	umode_t mode = op->mode;
 	int error = path_lookupat(dfd, pathname,
 				  flags | LOOKUP_DIRECTORY, nd);
 	if (unlikely(error))
@@ -1987,7 +1988,9 @@ static struct file *do_tmpfile(int dfd, const char *pathname,
 	nd->flags |= op->intent;
 	dput(nd->path.dentry);
 	nd->path.dentry = child;
-	error = dir->i_op->tmpfile(dir, nd->path.dentry, op->mode);
+	if (!IS_POSIXACL(dir))
+		mode &= ~current_umask();
+	error = dir->i_op->tmpfile(dir, nd->path.dentry, mode);
 	if (error)
 		goto out2;
 	audit_inode(pathname, nd->path.dentry);
