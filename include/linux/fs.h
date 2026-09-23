@@ -22,7 +22,9 @@
 #define SEEK_HOLE	4	
 #define SEEK_MAX	SEEK_HOLE
 
+#ifndef RENAME_NOREPLACE
 #define RENAME_NOREPLACE	(1 << 0)	/* Don't overwrite target */
+#endif
 
 struct fstrim_range {
 	__u64 start;
