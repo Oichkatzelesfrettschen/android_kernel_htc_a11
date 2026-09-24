@@ -180,6 +180,7 @@ struct android_dev {
 
 	bool enabled;
 	int disable_depth;
+	int pullup_hold;
 	struct mutex mutex;
 	struct android_usb_platform_data *pdata;
 
@@ -475,7 +476,12 @@ static int android_enable(struct android_dev *dev)
 #ifdef CONFIG_HTC_USB_DEBUG_FLAG
 		dbg_event(0xFF,"ANDENA",0);
 #endif
-		usb_gadget_connect(cdev->gadget);
+		/*
+		 * A forced re-enumeration in progress reasserts the pullup
+		 * when its window closes, so the host sees one disconnect.
+		 */
+		if (!dev->pullup_hold)
+			usb_gadget_connect(cdev->gadget);
 #ifdef CONFIG_HTC_USB_DEBUG_FLAG
 		dbg_event(0xFF,"CONNEND",0);
 #endif
@@ -494,7 +500,9 @@ static void android_disable(struct android_dev *dev)
 #ifdef CONFIG_HTC_USB_DEBUG_FLAG
 		dbg_event(0xFF,"ANDDIS",0);
 #endif
-		usb_gadget_disconnect(cdev->gadget);
+		/* A forced re-enumeration in progress already dropped it */
+		if (!dev->pullup_hold)
+			usb_gadget_disconnect(cdev->gadget);
 #ifdef CONFIG_HTC_USB_DEBUG_FLAG
 		dbg_event(0xFF,"DISCEND",0);
 #endif
@@ -504,6 +512,51 @@ static void android_disable(struct android_dev *dev)
 		list_for_each_entry(conf, &dev->configs, list_item)
 			usb_remove_config(cdev, &conf->usb_config);
 	}
+}
+
+/*
+ * Force the host to re-enumerate: drop the pullup for hold_ms, then
+ * reassert it. composite_disconnect() hands FUNCTIONFS_DISABLE to adbd,
+ * which closes and reopens ep0 inside the window; the ffs closed and
+ * ready callbacks then move only disable_depth, the rebuilt
+ * configuration binds with the pullup off, and the host sees one
+ * disconnect of hold_ms. The pullup changes state only when
+ * disable_depth or pullup_hold crosses zero, so every
+ * usb_gadget_disconnect() pairs with one usb_gadget_connect(); an
+ * unpaired disconnect leaves dwc3 running with its IRQ masked, because
+ * dwc3_gadget_pullup() calls disable_irq() on every disconnect.
+ */
+static void android_force_reenumerate(struct usb_composite_dev *cdev,
+				      unsigned int hold_ms)
+{
+	struct android_dev *dev = cdev_to_android_dev(cdev);
+
+	mutex_lock(&dev->mutex);
+	if (cdev->gadget->speed == USB_SPEED_UNKNOWN) {
+		mutex_unlock(&dev->mutex);
+		return;
+	}
+	if (dev->pullup_hold++ == 0 && dev->disable_depth == 0)
+		usb_gadget_disconnect(cdev->gadget);
+	composite_disconnect(cdev->gadget);
+	mutex_unlock(&dev->mutex);
+
+	msleep(hold_ms);
+
+	mutex_lock(&dev->mutex);
+	/*
+	 * usb_remove_config() inside the window resets os_type and the
+	 * mass-storage mode; the host on the other end has not changed,
+	 * and leaving os_type at OS_NOT_YET would make the next
+	 * GET_DESCRIPTOR(CONFIG) schedule this reset again.
+	 */
+	if (os_type == OS_NOT_YET) {
+		os_type = OS_LINUX;
+		fsg_update_mode(1);
+	}
+	if (--dev->pullup_hold == 0 && dev->disable_depth == 0)
+		usb_gadget_connect(cdev->gadget);
+	mutex_unlock(&dev->mutex);
 }
 
 
