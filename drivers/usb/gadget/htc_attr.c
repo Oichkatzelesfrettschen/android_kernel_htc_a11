@@ -147,19 +147,22 @@ void android_force_reset(void)
 {
 	struct android_dev *dev = _android_dev;
 
-	
-	mutex_lock(&function_bind_sem);
-	if (dev) {
-		android_disable(dev);
-		dev->enabled = false;
-
-		msleep(500);
-
-		android_enable(dev);
-		dev->enabled = true;
-	} else
+	if (!dev) {
 		pr_info("force reset fails: no device.\n");
+		return;
+	}
+
+	mutex_lock(&dev->mutex);
+	mutex_lock(&function_bind_sem);
+	android_disable(dev);
+	dev->enabled = false;
+
+	msleep(500);
+
+	android_enable(dev);
+	dev->enabled = true;
 	mutex_unlock(&function_bind_sem);
+	mutex_unlock(&dev->mutex);
 }
 #if 0
 
@@ -403,12 +406,18 @@ int android_switch_function(unsigned func)
 	int product_id = 0, vendor_id = 0;
 	unsigned val, comm_class = 0;
 
+	/*
+	 * dev->mutex is the lock the ffs ready and closed callbacks hold
+	 * while they move disable_depth, so the switch takes it too.
+	 */
+	mutex_lock(&dev->mutex);
 	mutex_lock(&function_bind_sem);
 
 	
 	if (dev->enabled != true) {
 		pr_info("%s: USB driver is not initialize\n", __func__);
 		mutex_unlock(&function_bind_sem);
+		mutex_unlock(&dev->mutex);
 		return 0;
 	}
 
@@ -425,6 +434,7 @@ int android_switch_function(unsigned func)
 	if (func == val && rom_stockui != 1) {
 		pr_info("%s: SKIP due the function is the same ,%u\n" , __func__, func);
 		mutex_unlock(&function_bind_sem);
+		mutex_unlock(&dev->mutex);
 		return 0;
 	}
 	
@@ -620,6 +630,7 @@ int android_switch_function(unsigned func)
 	dev->enabled = true;
 
 	mutex_unlock(&function_bind_sem);
+	mutex_unlock(&dev->mutex);
 	return 0;
 }
 
