@@ -12,6 +12,22 @@ config ANDROID_BINDER_IPC
 	bool "Android Binder IPC Driver"
 	default n
 
+config ANDROID_BINDER_IPC_32BIT
+	bool "Use old (Android 4.4 and earlier) 32-bit binder API"
+	depends on !64BIT && ANDROID_BINDER_IPC
+	default n
+	help
+	  Enable compatibility with old 32-bit Android user-space. This ABI
+	  is incompatible with modern Android user-space.
+
+config ANDROID_BINDER_DEVICES
+	string "Android Binder devices"
+	depends on ANDROID_BINDER_IPC
+	default "binder,hwbinder,vndbinder"
+	help
+	  Comma-separated names of binder devices, each with its own context
+	  manager.
+
 config ASHMEM
 	bool "Enable the Anonymous Shared Memory Subsystem"
 	default n
