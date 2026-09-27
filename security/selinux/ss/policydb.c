@@ -293,6 +293,7 @@ static int policydb_init(struct policydb *p)
 	if (rc)
 		goto out;
 
+	rc = -ENOMEM;
 	p->filename_trans = hashtab_create(filenametr_hash, filenametr_cmp, (1 << 10));
 	if (!p->filename_trans)
 		goto out;
