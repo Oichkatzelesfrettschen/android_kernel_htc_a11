@@ -3075,8 +3075,12 @@ int security_read_policy(void **data, size_t *len)
 	rc = policydb_write(&policydb, &fp);
 	read_unlock(&policy_rwlock);
 
-	if (rc)
+	if (rc) {
+		vfree(*data);
+		*data = NULL;
+		*len = 0;
 		return rc;
+	}
 
 	*len = (unsigned long)fp.data - (unsigned long)*data;
 	return 0;

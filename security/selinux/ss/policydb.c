@@ -2602,6 +2602,10 @@ int policydb_read(struct policydb *p, void *fp)
 	}
 
 	legacy_rc = policydb_read_format(&alternative, &legacy, 1);
+	if (legacy_rc == -ENOMEM) {
+		policydb_destroy(p);
+		return legacy_rc;
+	}
 	if (!legacy_rc) {
 		/* Policies without extended rules have identical wire semantics. */
 		if (p->has_extended_perms || alternative.has_extended_perms) {
