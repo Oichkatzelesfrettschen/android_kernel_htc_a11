@@ -1907,8 +1907,13 @@ static ssize_t ps_workaround_table_show(struct device *dev,
 {
 	struct cm36686_info *lpi = lp_info;
 	int i = 0;
-	char table_str[952] = "";
+	char *table_str;
 	char temp_str[64] = "";
+	ssize_t result;
+
+	table_str = kzalloc(952, GFP_KERNEL);
+	if (!table_str)
+		return -ENOMEM;
 
 	sprintf(table_str, "mapping table size = %d\n", lpi->mapping_size);
 	printk(KERN_DEBUG "%s: table_str = %s\n", __func__, table_str);
@@ -1924,7 +1929,9 @@ static ssize_t ps_workaround_table_show(struct device *dev,
 			strcat(table_str, "\n");
 	}
 
-	return sprintf(buf, "%s\n", table_str);
+	result = sprintf(buf, "%s\n", table_str);
+	kfree(table_str);
+	return result;
 }
 static ssize_t ps_workaround_table_store(struct device *dev,
 		struct device_attribute *attr,
