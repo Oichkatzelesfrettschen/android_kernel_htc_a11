@@ -117,8 +117,11 @@ static void add_alias_field(char *alias, const char *separator,
 		fatal("module alias exceeds %d bytes\n", ALIAS_SIZE);
 }
 
-#define ADD(str, sep, cond, field) \
-	add_alias_field(str, sep, cond, (unsigned int)(field), sizeof(field))
+#define ADD(str, sep, cond, field) do { \
+	_Static_assert(sizeof(field) == 1 || sizeof(field) == 2 || \
+		       sizeof(field) == 4, "unsupported alias field width"); \
+	add_alias_field(str, sep, cond, (unsigned int)(field), sizeof(field)); \
+} while (0)
 
 static inline void add_wildcard(char *str)
 {
