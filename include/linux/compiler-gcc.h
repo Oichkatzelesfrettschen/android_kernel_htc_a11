@@ -5,6 +5,9 @@
 /*
  * Common definitions for all gcc versions go here.
  */
+#define GCC_VERSION (__GNUC__ * 10000 \
+		   + __GNUC_MINOR__ * 100 \
+		   + __GNUC_PATCHLEVEL__)
 
 
 /* Optimization barrier */
@@ -94,10 +97,56 @@
 #define __maybe_unused			__attribute__((unused))
 #define __always_unused			__attribute__((unused))
 
-#define __gcc_header(x) #x
-#define _gcc_header(x) __gcc_header(linux/compiler-gcc##x.h)
-#define gcc_header(x) _gcc_header(x)
-#include gcc_header(__GNUC__)
+/* GCC version specific checks. */
+#if GCC_VERSION < 30200
+# error Sorry, your compiler is too old - please upgrade it.
+#endif
+
+#if GCC_VERSION < 30300
+# define __used			__attribute__((__unused__))
+#else
+# define __used			__attribute__((__used__))
+#endif
+
+#ifdef CONFIG_GCOV_KERNEL
+# if GCC_VERSION < 30400
+#  error "GCOV profiling support for GCC versions below 3.4 not included"
+# endif
+#endif
+
+#if GCC_VERSION >= 30400
+# define __must_check		__attribute__((warn_unused_result))
+#endif
+
+#if GCC_VERSION >= 40000
+/* GCC 4.1.[01] miscompiles __weak. */
+# ifdef __KERNEL__
+#  if GCC_VERSION >= 40100 && GCC_VERSION <= 40101
+#   error Your version of GCC miscompiles the __weak directive
+#  endif
+# endif
+
+# define __compiler_offsetof(a, b) __builtin_offsetof(a, b)
+
+# if GCC_VERSION >= 40100
+#  define __compiletime_object_size(obj) __builtin_object_size(obj, 0)
+# endif
+
+# if GCC_VERSION >= 40300
+#  define __cold			__attribute__((__cold__))
+#  define __UNIQUE_ID(prefix) \
+	__PASTE(__PASTE(__UNIQUE_ID_, prefix), __COUNTER__)
+#  ifndef __CHECKER__
+#   define __compiletime_warning(message) __attribute__((warning(message)))
+#   define __compiletime_error(message) __attribute__((error(message)))
+#  endif
+# endif
+
+# if GCC_VERSION >= 40500
+#  define unreachable() __builtin_unreachable()
+#  define __noclone		__attribute__((__noclone__))
+# endif
+#endif
 
 #if !defined(__noclone)
 #define __noclone	/* not needed */
@@ -107,6 +156,14 @@
  * A trick to suppress uninitialized variable warning without generating any
  * code
  */
-#define uninitialized_var(x) x = x
+#if GCC_VERSION >= 160000
+# define uninitialized_var(x) x = ({ \
+	typeof(x) __uninitialized_value; \
+	__asm__("" : "=g" (__uninitialized_value)); \
+	__uninitialized_value; \
+})
+#else
+# define uninitialized_var(x) x = x
+#endif
 
 #define __always_inline		inline __attribute__((always_inline))
