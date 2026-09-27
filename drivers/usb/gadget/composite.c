@@ -51,7 +51,7 @@ static char *iSerialNumber;
 module_param(iSerialNumber, charp, 0);
 MODULE_PARM_DESC(iSerialNumber, "SerialNumber string");
 
-static char composite_manufacturer[50];
+static char *composite_manufacturer;
 
 #define REQUEST_RESET_DELAYED (HZ / 10) 
 int htcctusbcmd;
@@ -480,7 +480,8 @@ static int bos_desc(struct usb_composite_dev *cdev)
 
 	usb_ext = cdev->req->buf + le16_to_cpu(bos->wTotalLength);
 	bos->bNumDeviceCaps++;
-	le16_add_cpu(&bos->wTotalLength, USB_DT_USB_EXT_CAP_SIZE);
+	bos->wTotalLength = cpu_to_le16(le16_to_cpu(bos->wTotalLength) +
+					USB_DT_USB_EXT_CAP_SIZE);
 	usb_ext->bLength = USB_DT_USB_EXT_CAP_SIZE;
 	usb_ext->bDescriptorType = USB_DT_DEVICE_CAPABILITY;
 	usb_ext->bDevCapabilityType = USB_CAP_TYPE_EXT;
@@ -489,7 +490,8 @@ static int bos_desc(struct usb_composite_dev *cdev)
 	if (gadget_is_superspeed(cdev->gadget)) {
 		ss_cap = cdev->req->buf + le16_to_cpu(bos->wTotalLength);
 		bos->bNumDeviceCaps++;
-		le16_add_cpu(&bos->wTotalLength, USB_DT_USB_SS_CAP_SIZE);
+		bos->wTotalLength = cpu_to_le16(le16_to_cpu(bos->wTotalLength) +
+						USB_DT_USB_SS_CAP_SIZE);
 		ss_cap->bLength = USB_DT_USB_SS_CAP_SIZE;
 		ss_cap->bDescriptorType = USB_DT_DEVICE_CAPABILITY;
 		ss_cap->bDevCapabilityType = USB_SS_CAP_TYPE;
@@ -767,20 +769,25 @@ int usb_remove_config(struct usb_composite_dev *cdev,
 
 
 
-static void collect_langs(struct usb_gadget_strings **sp, __le16 *buf)
+static void collect_langs(struct usb_gadget_strings **sp, u8 *buf)
 {
 	const struct usb_gadget_strings	*s;
 	u16				language;
-	__le16				*tmp;
+	unsigned int			index;
 
 	while (*sp) {
 		s = *sp;
-		language = cpu_to_le16(s->language);
-		for (tmp = buf; *tmp && tmp < &buf[126]; tmp++) {
-			if (*tmp == language)
+		language = s->language;
+		for (index = 0; index < 126; index++) {
+			u16 existing = get_unaligned_le16(buf + 2 * index);
+
+			if (existing == language)
 				goto repeat;
+			if (!existing) {
+				put_unaligned_le16(language, buf + 2 * index);
+				break;
+			}
 		}
-		*tmp++ = language;
 repeat:
 		sp++;
 	}
@@ -820,27 +827,30 @@ static int get_string(struct usb_composite_dev *cdev,
 	if (id == 0) {
 		struct usb_string_descriptor	*s = buf;
 		struct usb_gadget_strings	**sp;
+		u8				*languages = (u8 *)s +
+				offsetof(struct usb_string_descriptor, wData);
 
 		memset(s, 0, 256);
 		s->bDescriptorType = USB_DT_STRING;
 
 		sp = composite->strings;
 		if (sp)
-			collect_langs(sp, s->wData);
+			collect_langs(sp, languages);
 
 		list_for_each_entry(c, &cdev->configs, list) {
 			sp = c->strings;
 			if (sp)
-				collect_langs(sp, s->wData);
+				collect_langs(sp, languages);
 
 			list_for_each_entry(f, &c->functions, list) {
 				sp = f->strings;
 				if (sp)
-					collect_langs(sp, s->wData);
+					collect_langs(sp, languages);
 			}
 		}
 
-		for (len = 0; len <= 126 && s->wData[len]; len++)
+		for (len = 0; len < 126 &&
+		     get_unaligned_le16(languages + 2 * len); len++)
 			continue;
 		if (!len)
 			return -EINVAL;
@@ -1283,6 +1293,8 @@ composite_unbind(struct usb_gadget *gadget)
 		usb_ep_free_request(gadget->ep0, cdev->req);
 	}
 	device_remove_file(&gadget->dev, &dev_attr_suspended);
+	kfree(composite_manufacturer);
+	composite_manufacturer = NULL;
 	kfree(cdev);
 	set_gadget_data(gadget, NULL);
 	composite = NULL;
@@ -1351,13 +1363,15 @@ static int composite_bind(struct usb_gadget *gadget)
 	
 	if (iManufacturer || !cdev->desc.iManufacturer) {
 		if (!iManufacturer && !composite->iManufacturer &&
-		    !*composite_manufacturer)
-			snprintf(composite_manufacturer,
-				 sizeof composite_manufacturer,
-				 "%s %s with %s",
-				 init_utsname()->sysname,
-				 init_utsname()->release,
-				 gadget->name);
+		    !composite_manufacturer) {
+			composite_manufacturer = kasprintf(GFP_KERNEL,
+				"%s %s with %s", init_utsname()->sysname,
+				init_utsname()->release, gadget->name);
+			if (!composite_manufacturer) {
+				status = -ENOMEM;
+				goto fail;
+			}
+		}
 
 		cdev->manufacturer_override =
 			override_id(cdev, &cdev->desc.iManufacturer);
