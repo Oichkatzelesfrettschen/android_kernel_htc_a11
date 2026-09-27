@@ -56,7 +56,8 @@ int get_partition_num_by_name(char *name)
 	struct htc_emmc_partition *ptn = emmc_partitions;
 	int i;
 
-	for (i = 0; i < MSM_MAX_PARTITIONS && ptn->partition_name; i++, ptn++) {
+	for (i = 0; i < emmc_partition_update && i < MSM_MAX_PARTITIONS;
+	     i++, ptn++) {
 		if (strcmp(ptn->partition_name, name) == 0)
 			return ptn->dev_num;
 	}
@@ -78,10 +79,14 @@ int htc_emmc_partition_write(struct file *file, const char *buffer,
 	if (emmc_partition_update < 0 || emmc_partition_update >= MSM_MAX_PARTITIONS)
 		return 0;
 
-	if (copy_from_user(buf, buffer, 64))
+	if (!count || count >= sizeof(buf))
+		return -EINVAL;
+	if (copy_from_user(buf, buffer, count))
 		return -EFAULT;
+	buf[count] = '\0';
 
-	if ((ret = sscanf(buf, "%d %d %16s", &dev_num, &partition_size, partition_name)) != 3) {
+	if ((ret = sscanf(buf, "%u %u %15s", &dev_num, &partition_size,
+			  partition_name)) != 3) {
 		pr_info("%s: partition information format error:\
 			%d items input matched. \n", __func__, ret);
 		return -EINVAL;
@@ -94,7 +99,9 @@ int htc_emmc_partition_write(struct file *file, const char *buffer,
 		}
 	}
 
-	strncpy(emmc_partitions[emmc_partition_update].partition_name, partition_name, 16);
+	strlcpy(emmc_partitions[emmc_partition_update].partition_name,
+		partition_name,
+		sizeof(emmc_partitions[emmc_partition_update].partition_name));
 	emmc_partitions[emmc_partition_update].dev_num = dev_num;
 	emmc_partitions[emmc_partition_update].partition_size = partition_size;
 
