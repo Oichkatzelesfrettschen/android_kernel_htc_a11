@@ -42,6 +42,10 @@ extern void __chk_io_ptr(const volatile void __iomem *);
 # define __rcu
 #endif
 
+/* Indirect macros required for expanded argument pasting, such as __LINE__. */
+#define ___PASTE(a, b) a##b
+#define __PASTE(a, b) ___PASTE(a, b)
+
 #ifdef __KERNEL__
 
 #ifdef __GNUC__
@@ -55,6 +59,11 @@ extern void __chk_io_ptr(const volatile void __iomem *);
  */
 #ifdef __INTEL_COMPILER
 # include <linux/compiler-intel.h>
+#endif
+
+/* Clang defines __GNUC__, so override GCC compatibility definitions here. */
+#ifdef __clang__
+# include <linux/compiler-clang.h>
 #endif
 
 /*
