@@ -293,6 +293,7 @@ static int policydb_init(struct policydb *p)
 	if (rc)
 		goto out;
 
+	rc = -ENOMEM;
 	p->filename_trans = hashtab_create(filenametr_hash, filenametr_cmp, (1 << 10));
 	if (!p->filename_trans)
 		goto out;
@@ -2550,7 +2551,8 @@ static int policydb_read_format(struct policydb *p, void *fp,
 	if (rc)
 		goto bad;
 
-	if (((struct policy_file *)fp)->len) {
+	if (p->policyvers == POLICYDB_VERSION_XPERMS_IOCTL &&
+	    ((struct policy_file *)fp)->len) {
 		rc = -EINVAL;
 		goto bad;
 	}
@@ -2572,6 +2574,8 @@ int policydb_read(struct policydb *p, void *fp)
 
 	/* Version 30 identifies both layouts, so only a complete parse selects one. */
 	upstream_rc = policydb_read_format(p, &upstream, 0);
+	if (upstream_rc == -ENOMEM)
+		return upstream_rc;
 	if (input.len < 20) {
 		if (!upstream_rc)
 			*(struct policy_file *)fp = upstream;
