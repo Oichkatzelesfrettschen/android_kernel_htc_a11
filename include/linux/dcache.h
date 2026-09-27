@@ -129,6 +129,7 @@ enum dentry_d_lock_class
 };
 
 struct dentry_operations {
+	void (*d_canonical_path)(const struct path *, struct path *);
 	int (*d_revalidate)(struct dentry *, struct nameidata *);
 	int (*d_hash)(const struct dentry *, const struct inode *,
 			struct qstr *);

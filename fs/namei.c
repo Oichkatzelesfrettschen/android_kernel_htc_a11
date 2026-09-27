@@ -187,8 +187,10 @@ int generic_permission(struct inode *inode, int mask)
 	return -EACCES;
 }
 
-static inline int do_inode_permission(struct inode *inode, int mask)
+static inline int do_inode_permission(struct vfsmount *mnt, struct inode *inode, int mask)
 {
+	if (mnt && inode->i_op->permission2)
+		return inode->i_op->permission2(mnt, inode, mask);
 	if (unlikely(!(inode->i_opflags & IOP_FASTPERM))) {
 		if (likely(inode->i_op->permission))
 			return inode->i_op->permission(inode, mask);
@@ -201,7 +203,7 @@ static inline int do_inode_permission(struct inode *inode, int mask)
 	return generic_permission(inode, mask);
 }
 
-int inode_permission(struct inode *inode, int mask)
+int inode_permission2(struct vfsmount *mnt, struct inode *inode, int mask)
 {
 	int retval;
 
@@ -216,7 +218,7 @@ int inode_permission(struct inode *inode, int mask)
 			return -EACCES;
 	}
 
-	retval = do_inode_permission(inode, mask);
+	retval = do_inode_permission(mnt, inode, mask);
 	if (retval)
 		return retval;
 
@@ -225,6 +227,11 @@ int inode_permission(struct inode *inode, int mask)
 		return retval;
 
 	return security_inode_permission(inode, mask);
+}
+
+int inode_permission(struct inode *inode, int mask)
+{
+	return inode_permission2(NULL, inode, mask);
 }
 
 void path_get(struct path *path)
@@ -951,13 +958,13 @@ need_lookup:
 static inline int may_lookup(struct nameidata *nd)
 {
 	if (nd->flags & LOOKUP_RCU) {
-		int err = inode_permission(nd->inode, MAY_EXEC|MAY_NOT_BLOCK);
+		int err = inode_permission2(nd->path.mnt, nd->inode, MAY_EXEC|MAY_NOT_BLOCK);
 		if (err != -ECHILD)
 			return err;
 		if (unlazy_walk(nd, NULL))
 			return -ECHILD;
 	}
-	return inode_permission(nd->inode, MAY_EXEC);
+	return inode_permission2(nd->path.mnt, nd->inode, MAY_EXEC);
 }
 
 static inline int handle_dots(struct nameidata *nd, int type)
@@ -1261,7 +1268,7 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 		if (*name) {
 			if (!inode->i_op->lookup)
 				return -ENOTDIR;
-			retval = inode_permission(inode, MAY_EXEC);
+			retval = inode_permission2(nd->root.mnt, inode, MAY_EXEC);
 			if (retval)
 				return retval;
 		}
@@ -1320,7 +1327,7 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 			if (!S_ISDIR(dentry->d_inode->i_mode))
 				goto fput_fail;
 
-			retval = inode_permission(dentry->d_inode, MAY_EXEC);
+			retval = inode_permission2(file->f_path.mnt, dentry->d_inode, MAY_EXEC);
 			if (retval)
 				goto fput_fail;
 		}
@@ -1426,6 +1433,29 @@ static int do_path_lookup(int dfd, const char *name,
 int kern_path_parent(const char *name, struct nameidata *nd)
 {
 	return do_path_lookup(AT_FDCWD, name, LOOKUP_PARENT, nd);
+}
+
+struct dentry *kern_path_locked(const char *name, struct path *path)
+{
+	struct nameidata nd;
+	struct dentry *dentry;
+	int error = do_path_lookup(AT_FDCWD, name, LOOKUP_PARENT, &nd);
+
+	if (error)
+		return ERR_PTR(error);
+	if (nd.last_type != LAST_NORM) {
+		path_put(&nd.path);
+		return ERR_PTR(-EINVAL);
+	}
+	mutex_lock_nested(&nd.path.dentry->d_inode->i_mutex, I_MUTEX_PARENT);
+	dentry = lookup_one_len(nd.last.name, nd.path.dentry, nd.last.len);
+	if (IS_ERR(dentry)) {
+		mutex_unlock(&nd.path.dentry->d_inode->i_mutex);
+		path_put(&nd.path);
+		return dentry;
+	}
+	*path = nd.path;
+	return dentry;
 }
 
 int kern_path(const char *name, unsigned int flags, struct path *path)
@@ -1549,7 +1579,7 @@ other_userns:
 	return !ns_capable(inode_userns(inode), CAP_FOWNER);
 }
 
-static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
+static int may_delete(struct vfsmount *mnt, struct inode *dir,struct dentry *victim,int isdir)
 {
 	int error;
 
@@ -1559,7 +1589,7 @@ static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
 	BUG_ON(victim->d_parent->d_inode != dir);
 	audit_inode_child(victim, dir);
 
-	error = inode_permission(dir, MAY_WRITE | MAY_EXEC);
+	error = inode_permission2(mnt, dir, MAY_WRITE | MAY_EXEC);
 	if (error)
 		return error;
 	if (IS_APPEND(dir))
@@ -1581,13 +1611,13 @@ static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
 	return 0;
 }
 
-static inline int may_create(struct inode *dir, struct dentry *child)
+static inline int may_create(struct vfsmount *mnt, struct inode *dir, struct dentry *child)
 {
 	if (child->d_inode)
 		return -EEXIST;
 	if (IS_DEADDIR(dir))
 		return -ENOENT;
-	return inode_permission(dir, MAY_WRITE | MAY_EXEC);
+	return inode_permission2(mnt, dir, MAY_WRITE | MAY_EXEC);
 }
 
 struct dentry *lock_rename(struct dentry *p1, struct dentry *p2)
@@ -1629,10 +1659,10 @@ void unlock_rename(struct dentry *p1, struct dentry *p2)
 	}
 }
 
-int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
+int vfs_create2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry, umode_t mode,
 		struct nameidata *nd)
 {
-	int error = may_create(dir, dentry);
+	int error = may_create(mnt, dir, dentry);
 
 	if (error)
 		return error;
@@ -1648,6 +1678,12 @@ int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	if (!error)
 		fsnotify_create(dir, dentry);
 	return error;
+}
+
+int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
+		struct nameidata *nd)
+{
+	return vfs_create2(NULL, dir, dentry, mode, nd);
 }
 
 static int may_open(struct path *path, int acc_mode, int flag)
@@ -1681,7 +1717,7 @@ static int may_open(struct path *path, int acc_mode, int flag)
 		break;
 	}
 
-	error = inode_permission(inode, acc_mode);
+	error = inode_permission2(path->mnt, inode, acc_mode);
 	if (error)
 		return error;
 
@@ -1710,7 +1746,7 @@ static int handle_truncate(struct file *filp)
 	if (!error)
 		error = security_path_truncate(path);
 	if (!error) {
-		error = do_truncate(path->dentry, 0,
+		error = do_truncate2(path->mnt, path->dentry, 0,
 				    ATTR_MTIME|ATTR_CTIME|ATTR_OPEN,
 				    filp);
 	}
@@ -1831,7 +1867,7 @@ static struct file *do_last(struct nameidata *nd, struct path *path,
 		error = security_path_mknod(&nd->path, dentry, mode, 0);
 		if (error)
 			goto exit_mutex_unlock;
-		error = vfs_create(dir->d_inode, dentry, mode, nd);
+		error = vfs_create2(path->mnt, dir->d_inode, dentry, mode, nd);
 		if (error)
 			goto exit_mutex_unlock;
 		mutex_unlock(&dir->d_inode->i_mutex);
@@ -2061,9 +2097,9 @@ struct dentry *user_path_create(int dfd, const char __user *pathname, struct pat
 }
 EXPORT_SYMBOL(user_path_create);
 
-int vfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
+int vfs_mknod2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
 {
-	int error = may_create(dir, dentry);
+	int error = may_create(mnt, dir, dentry);
 
 	if (error)
 		return error;
@@ -2087,6 +2123,11 @@ int vfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
 	if (!error)
 		fsnotify_create(dir, dentry);
 	return error;
+}
+
+int vfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
+{
+	return vfs_mknod2(NULL, dir, dentry, mode, dev);
 }
 
 static int may_mknod(umode_t mode)
@@ -2133,14 +2174,14 @@ SYSCALL_DEFINE4(mknodat, int, dfd, const char __user *, filename, umode_t, mode,
 		goto out_drop_write;
 	switch (mode & S_IFMT) {
 		case 0: case S_IFREG:
-			error = vfs_create(path.dentry->d_inode,dentry,mode,NULL);
+			error = vfs_create2(path.mnt,path.dentry->d_inode,dentry,mode,NULL);
 			break;
 		case S_IFCHR: case S_IFBLK:
-			error = vfs_mknod(path.dentry->d_inode,dentry,mode,
+			error = vfs_mknod2(path.mnt,path.dentry->d_inode,dentry,mode,
 					new_decode_dev(dev));
 			break;
 		case S_IFIFO: case S_IFSOCK:
-			error = vfs_mknod(path.dentry->d_inode,dentry,mode,0);
+			error = vfs_mknod2(path.mnt,path.dentry->d_inode,dentry,mode,0);
 			break;
 	}
 out_drop_write:
@@ -2158,9 +2199,9 @@ SYSCALL_DEFINE3(mknod, const char __user *, filename, umode_t, mode, unsigned, d
 	return sys_mknodat(AT_FDCWD, filename, mode, dev);
 }
 
-int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
+int vfs_mkdir2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry, umode_t mode)
 {
-	int error = may_create(dir, dentry);
+	int error = may_create(mnt, dir, dentry);
 	unsigned max_links = dir->i_sb->s_max_links;
 
 	if (error)
@@ -2183,6 +2224,11 @@ int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	return error;
 }
 
+int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
+{
+	return vfs_mkdir2(NULL, dir, dentry, mode);
+}
+
 SYSCALL_DEFINE3(mkdirat, int, dfd, const char __user *, pathname, umode_t, mode)
 {
 	struct dentry *dentry;
@@ -2201,7 +2247,7 @@ SYSCALL_DEFINE3(mkdirat, int, dfd, const char __user *, pathname, umode_t, mode)
 	error = security_path_mkdir(&path, dentry, mode);
 	if (error)
 		goto out_drop_write;
-	error = vfs_mkdir(path.dentry->d_inode, dentry, mode);
+	error = vfs_mkdir2(path.mnt, path.dentry->d_inode, dentry, mode);
 out_drop_write:
 	mnt_drop_write(path.mnt);
 out_dput:
@@ -2225,9 +2271,9 @@ void dentry_unhash(struct dentry *dentry)
 	spin_unlock(&dentry->d_lock);
 }
 
-int vfs_rmdir(struct inode *dir, struct dentry *dentry)
+int vfs_rmdir2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry)
 {
-	int error = may_delete(dir, dentry, 1);
+	int error = may_delete(mnt, dir, dentry, 1);
 
 	if (error)
 		return error;
@@ -2260,6 +2306,11 @@ out:
 	if (!error)
 		d_delete(dentry);
 	return error;
+}
+
+int vfs_rmdir(struct inode *dir, struct dentry *dentry)
+{
+	return vfs_rmdir2(NULL, dir, dentry);
 }
 
 static long do_rmdir(int dfd, const char __user *pathname)
@@ -2302,7 +2353,7 @@ static long do_rmdir(int dfd, const char __user *pathname)
 	error = security_path_rmdir(&nd.path, dentry);
 	if (error)
 		goto exit4;
-	error = vfs_rmdir(nd.path.dentry->d_inode, dentry);
+	error = vfs_rmdir2(nd.path.mnt, nd.path.dentry->d_inode, dentry);
 exit4:
 	mnt_drop_write(nd.path.mnt);
 exit3:
@@ -2320,9 +2371,9 @@ SYSCALL_DEFINE1(rmdir, const char __user *, pathname)
 	return do_rmdir(AT_FDCWD, pathname);
 }
 
-int vfs_unlink(struct inode *dir, struct dentry *dentry)
+int vfs_unlink2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry)
 {
-	int error = may_delete(dir, dentry, 0);
+	int error = may_delete(mnt, dir, dentry, 0);
 	struct super_block *sb = dentry->d_sb;
 
 	if (error)
@@ -2357,6 +2408,11 @@ int vfs_unlink(struct inode *dir, struct dentry *dentry)
 	}
 
 	return error;
+}
+
+int vfs_unlink(struct inode *dir, struct dentry *dentry)
+{
+	return vfs_unlink2(NULL, dir, dentry);
 }
 
 static long do_unlinkat(int dfd, const char __user *pathname)
@@ -2394,7 +2450,7 @@ static long do_unlinkat(int dfd, const char __user *pathname)
 		error = security_path_unlink(&nd.path, dentry);
 		if (error)
 			goto exit3;
-		error = vfs_unlink(nd.path.dentry->d_inode, dentry);
+		error = vfs_unlink2(nd.path.mnt, nd.path.dentry->d_inode, dentry);
 exit3:
 		mnt_drop_write(nd.path.mnt);
 	exit2:
@@ -2430,9 +2486,9 @@ SYSCALL_DEFINE1(unlink, const char __user *, pathname)
 	return do_unlinkat(AT_FDCWD, pathname);
 }
 
-int vfs_symlink(struct inode *dir, struct dentry *dentry, const char *oldname)
+int vfs_symlink2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry, const char *oldname)
 {
-	int error = may_create(dir, dentry);
+	int error = may_create(mnt, dir, dentry);
 
 	if (error)
 		return error;
@@ -2448,6 +2504,11 @@ int vfs_symlink(struct inode *dir, struct dentry *dentry, const char *oldname)
 	if (!error)
 		fsnotify_create(dir, dentry);
 	return error;
+}
+
+int vfs_symlink(struct inode *dir, struct dentry *dentry, const char *oldname)
+{
+	return vfs_symlink2(NULL, dir, dentry, oldname);
 }
 
 SYSCALL_DEFINE3(symlinkat, const char __user *, oldname,
@@ -2473,7 +2534,7 @@ SYSCALL_DEFINE3(symlinkat, const char __user *, oldname,
 	error = security_path_symlink(&path, dentry, from);
 	if (error)
 		goto out_drop_write;
-	error = vfs_symlink(path.dentry->d_inode, dentry, from);
+	error = vfs_symlink2(path.mnt, path.dentry->d_inode, dentry, from);
 out_drop_write:
 	mnt_drop_write(path.mnt);
 out_dput:
@@ -2490,7 +2551,7 @@ SYSCALL_DEFINE2(symlink, const char __user *, oldname, const char __user *, newn
 	return sys_symlinkat(oldname, AT_FDCWD, newname);
 }
 
-int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_dentry)
+int vfs_link2(struct vfsmount *mnt, struct dentry *old_dentry, struct inode *dir, struct dentry *new_dentry)
 {
 	struct inode *inode = old_dentry->d_inode;
 	unsigned max_links = dir->i_sb->s_max_links;
@@ -2499,7 +2560,7 @@ int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_de
 	if (!inode)
 		return -ENOENT;
 
-	error = may_create(dir, new_dentry);
+	error = may_create(mnt, dir, new_dentry);
 	if (error)
 		return error;
 
@@ -2529,6 +2590,11 @@ int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_de
 	if (!error)
 		fsnotify_link(dir, inode, new_dentry);
 	return error;
+}
+
+int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_dentry)
+{
+	return vfs_link2(NULL, old_dentry, dir, new_dentry);
 }
 
 SYSCALL_DEFINE5(linkat, int, olddfd, const char __user *, oldname,
@@ -2568,7 +2634,8 @@ SYSCALL_DEFINE5(linkat, int, olddfd, const char __user *, oldname,
 	error = security_path_link(old_path.dentry, &new_path, new_dentry);
 	if (error)
 		goto out_drop_write;
-	error = vfs_link(old_path.dentry, new_path.dentry->d_inode, new_dentry);
+	error = vfs_link2(old_path.mnt, old_path.dentry,
+			  new_path.dentry->d_inode, new_dentry);
 out_drop_write:
 	mnt_drop_write(new_path.mnt);
 out_dput:
@@ -2586,7 +2653,7 @@ SYSCALL_DEFINE2(link, const char __user *, oldname, const char __user *, newname
 	return sys_linkat(AT_FDCWD, oldname, AT_FDCWD, newname, 0);
 }
 
-static int vfs_rename_dir(struct inode *old_dir, struct dentry *old_dentry,
+static int vfs_rename_dir(struct vfsmount *mnt, struct inode *old_dir, struct dentry *old_dentry,
 			  struct inode *new_dir, struct dentry *new_dentry)
 {
 	int error = 0;
@@ -2594,7 +2661,7 @@ static int vfs_rename_dir(struct inode *old_dir, struct dentry *old_dentry,
 	unsigned max_links = new_dir->i_sb->s_max_links;
 
 	if (new_dir != old_dir) {
-		error = inode_permission(old_dentry->d_inode, MAY_WRITE);
+		error = inode_permission2(mnt, old_dentry->d_inode, MAY_WRITE);
 		if (error)
 			return error;
 	}
@@ -2669,7 +2736,7 @@ out:
 	return error;
 }
 
-int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
+int vfs_rename2(struct vfsmount *mnt, struct inode *old_dir, struct dentry *old_dentry,
 	       struct inode *new_dir, struct dentry *new_dentry)
 {
 	int error;
@@ -2679,14 +2746,14 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (old_dentry->d_inode == new_dentry->d_inode)
  		return 0;
  
-	error = may_delete(old_dir, old_dentry, is_dir);
+	error = may_delete(mnt, old_dir, old_dentry, is_dir);
 	if (error)
 		return error;
 
 	if (!new_dentry->d_inode)
-		error = may_create(new_dir, new_dentry);
+		error = may_create(mnt, new_dir, new_dentry);
 	else
-		error = may_delete(new_dir, new_dentry, is_dir);
+		error = may_delete(mnt, new_dir, new_dentry, is_dir);
 	if (error)
 		return error;
 
@@ -2696,7 +2763,7 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	old_name = fsnotify_oldname_init(old_dentry->d_name.name);
 
 	if (is_dir)
-		error = vfs_rename_dir(old_dir,old_dentry,new_dir,new_dentry);
+		error = vfs_rename_dir(mnt, old_dir,old_dentry,new_dir,new_dentry);
 	else
 		error = vfs_rename_other(old_dir,old_dentry,new_dir,new_dentry);
 	if (!error)
@@ -2705,6 +2772,12 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	fsnotify_oldname_free(old_name);
 
 	return error;
+}
+
+int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
+	       struct inode *new_dir, struct dentry *new_dentry)
+{
+	return vfs_rename2(NULL, old_dir, old_dentry, new_dir, new_dentry);
 }
 
 SYSCALL_DEFINE4(renameat, int, olddfd, const char __user *, oldname,
@@ -2781,7 +2854,7 @@ SYSCALL_DEFINE4(renameat, int, olddfd, const char __user *, oldname,
 				     &newnd.path, new_dentry);
 	if (error)
 		goto exit6;
-	error = vfs_rename(old_dir->d_inode, old_dentry,
+	error = vfs_rename2(oldnd.path.mnt, old_dir->d_inode, old_dentry,
 				   new_dir->d_inode, new_dentry);
 exit6:
 	mnt_drop_write(oldnd.path.mnt);
@@ -2950,18 +3023,27 @@ EXPORT_SYMBOL(page_symlink);
 EXPORT_SYMBOL(page_symlink_inode_operations);
 EXPORT_SYMBOL(kern_path);
 EXPORT_SYMBOL(vfs_path_lookup);
+EXPORT_SYMBOL(inode_permission2);
 EXPORT_SYMBOL(inode_permission);
 EXPORT_SYMBOL(unlock_rename);
+EXPORT_SYMBOL(vfs_create2);
 EXPORT_SYMBOL(vfs_create);
 EXPORT_SYMBOL(vfs_follow_link);
+EXPORT_SYMBOL(vfs_link2);
 EXPORT_SYMBOL(vfs_link);
+EXPORT_SYMBOL(vfs_mkdir2);
 EXPORT_SYMBOL(vfs_mkdir);
+EXPORT_SYMBOL(vfs_mknod2);
 EXPORT_SYMBOL(vfs_mknod);
 EXPORT_SYMBOL(generic_permission);
 EXPORT_SYMBOL(vfs_readlink);
+EXPORT_SYMBOL(vfs_rename2);
 EXPORT_SYMBOL(vfs_rename);
+EXPORT_SYMBOL(vfs_rmdir2);
 EXPORT_SYMBOL(vfs_rmdir);
+EXPORT_SYMBOL(vfs_symlink2);
 EXPORT_SYMBOL(vfs_symlink);
+EXPORT_SYMBOL(vfs_unlink2);
 EXPORT_SYMBOL(vfs_unlink);
 EXPORT_SYMBOL(dentry_unhash);
 EXPORT_SYMBOL(generic_readlink);

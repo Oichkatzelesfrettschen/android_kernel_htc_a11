@@ -532,7 +532,8 @@ rescan:
 	return NULL;
 }
 
-int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
+int do_remount_sb2(struct vfsmount *mnt, struct super_block *sb, int flags,
+		   void *data, int force)
 {
 	int retval;
 	int remount_ro;
@@ -562,7 +563,15 @@ int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
 		}
 	}
 
-	if (sb->s_op->remount_fs) {
+	if (mnt && sb->s_op->remount_fs2) {
+		retval = sb->s_op->remount_fs2(mnt, sb, &flags, data);
+		if (retval) {
+			if (!force)
+				goto cancel_readonly;
+			WARN(1, "forced remount of a %s fs returned %i\n",
+			     sb->s_type->name, retval);
+		}
+	} else if (sb->s_op->remount_fs) {
 		retval = sb->s_op->remount_fs(sb, &flags, data);
 		if (retval) {
 			if (!force)
@@ -584,6 +593,11 @@ int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
 cancel_readonly:
 	sb->s_readonly_remount = 0;
 	return retval;
+}
+
+int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
+{
+	return do_remount_sb2(NULL, sb, flags, data, force);
 }
 
 extern int get_partition_num_by_name(char *name);
@@ -894,7 +908,8 @@ struct dentry *mount_single(struct file_system_type *fs_type,
 EXPORT_SYMBOL(mount_single);
 
 struct dentry *
-mount_fs(struct file_system_type *type, int flags, const char *name, void *data)
+mount_fs(struct file_system_type *type, int flags, const char *name,
+	 struct vfsmount *mnt, void *data)
 {
 	struct dentry *root;
 	struct super_block *sb;
@@ -911,7 +926,10 @@ mount_fs(struct file_system_type *type, int flags, const char *name, void *data)
 			goto out_free_secdata;
 	}
 
-	root = type->mount(type, flags, name, data);
+	if (type->mount2)
+		root = type->mount2(mnt, type, flags, name, data);
+	else
+		root = type->mount(type, flags, name, data);
 	if (IS_ERR(root)) {
 		error = PTR_ERR(root);
 		goto out_free_secdata;

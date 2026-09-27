@@ -12,6 +12,37 @@
 #include "internal.h"
 #include "pnode.h"
 
+static struct mount *next_remount_descendent(struct mount *root,
+						struct mount *cursor)
+{
+	if (!IS_MNT_NEW(cursor) && !list_empty(&cursor->mnt_slave_list))
+		return list_entry(cursor->mnt_slave_list.next, struct mount,
+				  mnt_slave);
+	do {
+		struct mount *master = cursor->mnt_master;
+		struct mount *next;
+
+		if (!master || cursor->mnt_slave.next != &master->mnt_slave_list) {
+			next = list_entry(cursor->mnt_slave.next, struct mount,
+					  mnt_slave);
+			return next == root ? NULL : next;
+		}
+		cursor = master;
+	} while (cursor != root);
+	return NULL;
+}
+
+void propagate_remount(struct mount *mnt)
+{
+	struct super_block *sb = mnt->mnt.mnt_sb;
+	struct mount *cursor = mnt;
+
+	if (!sb->s_op->copy_mnt_data)
+		return;
+	while ((cursor = next_remount_descendent(mnt, cursor)))
+		sb->s_op->copy_mnt_data(cursor->mnt.data, mnt->mnt.data);
+}
+
 /* return the next shared peer mount of @p */
 static inline struct mount *next_peer(struct mount *p)
 {

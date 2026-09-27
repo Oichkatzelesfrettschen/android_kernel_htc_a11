@@ -447,6 +447,13 @@ static inline void hlist_add_after_rcu(struct hlist_node *prev,
 		({ tpos = hlist_entry(pos, typeof(*tpos), member); 1; }); \
 		pos = rcu_dereference_raw(hlist_next_rcu(pos)))
 
+#define hlist_for_each_entry_rcu_new(pos, head, member) \
+	for (pos = hlist_entry_safe(rcu_dereference_raw(hlist_first_rcu(head)), \
+			typeof(*(pos)), member); \
+	     pos; \
+	     pos = hlist_entry_safe(rcu_dereference_raw(hlist_next_rcu( \
+			&(pos)->member)), typeof(*(pos)), member))
+
 /**
  * hlist_for_each_entry_rcu_bh - iterate over rcu list of given type
  * @tpos:	the type * to use as a loop cursor.

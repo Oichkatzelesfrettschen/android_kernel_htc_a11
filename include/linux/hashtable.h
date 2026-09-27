@@ -174,6 +174,15 @@ static inline void hash_del_rcu(struct hlist_node *node)
 #define hash_for_each_possible_rcu(name, obj, node, member, key)		\
 	hlist_for_each_entry_rcu(obj, node, &name[hash_min(key, HASH_BITS(name))], member)
 
+#define hash_for_each_possible_rcu_new(name, obj, member, key) \
+	hlist_for_each_entry_rcu_new(obj, &name[hash_min(key, HASH_BITS(name))], \
+		member)
+
+#define hash_for_each_rcu_new(name, bucket, obj, member) \
+	for ((bucket) = 0, obj = NULL; obj == NULL && (bucket) < HASH_SIZE(name); \
+			(bucket)++) \
+		hlist_for_each_entry_rcu_new(obj, &name[bucket], member)
+
 /**
  * hash_for_each_possible_safe - iterate over all possible objects hashing to the
  * same bucket safe against removals
