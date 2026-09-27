@@ -709,14 +709,10 @@ void __init of_mpm_init(struct device_node *node)
 	int i;
 
 	/*
-	 * A non-static local aggregate's initializer carries no symbol of
-	 * its own, so modpost's section-mismatch pass attributes its
-	 * get_max_irqs relocations against mpm_irq_domain_linear_size()/
-	 * _legacy_size() to the nearest preceding global symbol,
-	 * msm_mpm_debug_mask, and reports .data -> .init.text. __initconst
-	 * gives the table its own symbol in .init.rodata, so the reference
-	 * modpost sees is .init.rodata -> .init.text, the legal direction
-	 * (both ranges are freed together after init).
+	 * __initconst places this table in .init.rodata, alongside the
+	 * __init get_max_irqs functions its entries point to; both ranges
+	 * are freed together once of_mpm_init() returns, so the reference
+	 * is safe for the kernel to make and safe for modpost to allow.
 	 */
 	static const struct mpm_of mpm_of_map[MSM_MPM_NR_IRQ_DOMAINS] __initconst = {
 		{
