@@ -80,19 +80,43 @@ extern struct devtable *__start___devtable[], *__stop___devtable[];
 	static struct devtable *SECTION(__devtable) __used \
 		__cat(devtable_ptr,__LINE__) = &__cat(devtable,__LINE__)
 
-#define ADD(str, sep, cond, field)                              \
-do {                                                            \
-        strcat(str, sep);                                       \
-        if (cond)                                               \
-                snprintf(str + strlen(str),                      \
-                        sizeof(str) - strlen(str) - 1,          \
-                        sizeof(field) == 1 ? "%02X" :           \
-                        sizeof(field) == 2 ? "%04X" :           \
-                        sizeof(field) == 4 ? "%08X" : "",       \
-                        field);                                 \
-        else                                                    \
-                snprintf(str + strlen(str), sizeof(str) - strlen(str) - 1, "*");    \
-} while(0)
+#define ALIAS_SIZE 500
+
+static void add_alias_field(char *alias, const char *separator,
+			    bool matched, unsigned int value, size_t value_size)
+{
+	size_t used = strlen(alias);
+	size_t separator_size = strlen(separator);
+	int digits, written;
+
+	if (used >= ALIAS_SIZE || separator_size >= ALIAS_SIZE - used)
+		fatal("module alias exceeds %d bytes\n", ALIAS_SIZE);
+	memcpy(alias + used, separator, separator_size);
+	used += separator_size;
+	alias[used] = '\0';
+
+	if (!matched) {
+		if (ALIAS_SIZE - used < 2)
+			fatal("module alias exceeds %d bytes\n", ALIAS_SIZE);
+		alias[used] = '*';
+		alias[used + 1] = '\0';
+		return;
+	}
+
+	switch (value_size) {
+	case 1: digits = 2; break;
+	case 2: digits = 4; break;
+	case 4: digits = 8; break;
+	default:
+		fatal("unsupported module alias field size %zu\n", value_size);
+	}
+	written = snprintf(alias + used, ALIAS_SIZE - used, "%0*X", digits, value);
+	if (written < 0 || (size_t)written >= ALIAS_SIZE - used)
+		fatal("module alias exceeds %d bytes\n", ALIAS_SIZE);
+}
+
+#define ADD(str, sep, cond, field) \
+	add_alias_field(str, sep, cond, (unsigned int)(field), sizeof(field))
 
 static inline void add_wildcard(char *str)
 {
@@ -139,7 +163,7 @@ static void do_usb_entry(struct usb_device_id *id,
 			 unsigned char range_lo, unsigned char range_hi,
 			 unsigned char max, struct module *mod)
 {
-	char alias[500];
+	char alias[ALIAS_SIZE];
 	strcpy(alias, "usb:");
 	ADD(alias, "v", id->match_flags&USB_DEVICE_ID_MATCH_VENDOR,
 	    id->idVendor);
@@ -997,7 +1021,7 @@ static void do_table(void *symval, unsigned long size,
 		     struct module *mod)
 {
 	unsigned int i;
-	char alias[500];
+	char alias[ALIAS_SIZE];
 	int (*do_entry)(const char *, void *entry, char *alias) = function;
 
 	device_id_check(mod->name, device_id, size, id_size, symval);
