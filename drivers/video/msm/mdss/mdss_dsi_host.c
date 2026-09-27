@@ -1968,9 +1968,10 @@ void mdss_dsi_fifo_status(struct mdss_dsi_ctrl_pdata *ctrl)
 	if (status & 0xcccc4489) {
 		MIPI_OUTP(base + 0x000c, status);
 		pr_err("%s: status=%x\n", __func__, status);
-		if (status & 0x0080)  
+		if (status & 0x0080) {
 			dsi_send_events(ctrl, DSI_EV_MDP_FIFO_UNDERFLOW);
 			XLOG_TOUT_HANDLER(__func__, 1, 1, 1, 0);
+		}
 	}
 }
 
