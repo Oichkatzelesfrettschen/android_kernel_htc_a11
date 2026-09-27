@@ -78,8 +78,11 @@ int htc_emmc_partition_write(struct file *file, const char *buffer,
 	if (emmc_partition_update < 0 || emmc_partition_update >= MSM_MAX_PARTITIONS)
 		return 0;
 
-	if (copy_from_user(buf, buffer, 64))
+	if (!count || count >= sizeof(buf))
+		return -EINVAL;
+	if (copy_from_user(buf, buffer, count))
 		return -EFAULT;
+	buf[count] = '\0';
 
 	if ((ret = sscanf(buf, "%d %d %15s", &dev_num, &partition_size, partition_name)) != 3) {
 		pr_info("%s: partition information format error:\
