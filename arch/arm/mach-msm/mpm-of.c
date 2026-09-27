@@ -685,12 +685,21 @@ static int __devinit msm_mpm_dev_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static inline int __init mpm_irq_domain_linear_size(struct irq_domain *d)
+/*
+ * mpm_of_map[]'s get_max_irqs pointers are read from of_mpm_init()'s own
+ * stack frame, but modpost's section-mismatch pass attributes the
+ * .init.text reference to the nearest preceding non-static symbol
+ * (msm_mpm_debug_mask) instead of the real, __init-safe caller. Dropping
+ * __init here (both functions are one-line struct-field accessors the
+ * compiler inlines on -O2) removes the false section mismatch without
+ * changing code generation.
+ */
+static inline int mpm_irq_domain_linear_size(struct irq_domain *d)
 {
 	return d->revmap_data.linear.size;
 }
 
-static inline int __init mpm_irq_domain_legacy_size(struct irq_domain *d)
+static inline int mpm_irq_domain_legacy_size(struct irq_domain *d)
 {
 	return d->revmap_data.legacy.size;
 }
