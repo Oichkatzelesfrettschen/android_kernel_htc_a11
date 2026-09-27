@@ -36,13 +36,14 @@
  */
 #define readl_poll_timeout(addr, val, cond, sleep_us, timeout_us) \
 ({ \
-	unsigned long timeout = jiffies + usecs_to_jiffies(timeout_us); \
-	might_sleep_if(timeout_us); \
+	unsigned long __timeout_us = (timeout_us); \
+	unsigned long timeout = jiffies + usecs_to_jiffies(__timeout_us); \
+	might_sleep_if(__timeout_us != 0); \
 	for (;;) { \
 		(val) = readl(addr); \
 		if (cond) \
 			break; \
-		if (timeout_us && time_after(jiffies, timeout)) { \
+		if (__timeout_us && time_after(jiffies, timeout)) { \
 			(val) = readl(addr); \
 			break; \
 		} \
