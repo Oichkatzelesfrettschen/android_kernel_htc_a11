@@ -60,7 +60,9 @@ obj-$(CONFIG_USB_ZERO)		+= g_zero.o
 obj-$(CONFIG_USB_AUDIO)		+= g_audio.o
 obj-$(CONFIG_USB_ETH)		+= g_ether.o
 obj-$(CONFIG_USB_GADGETFS)	+= gadgetfs.o
+ifneq ($(CONFIG_USB_G_ANDROID),y)
 obj-$(CONFIG_USB_FUNCTIONFS)	+= g_ffs.o
+endif
 obj-$(CONFIG_USB_FILE_STORAGE)	+= g_file_storage.o
 obj-$(CONFIG_USB_MASS_STORAGE)	+= g_mass_storage.o
 obj-$(CONFIG_USB_G_SERIAL)	+= g_serial.o
