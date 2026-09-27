@@ -120,6 +120,12 @@ extern unsigned int kobjsize(const void *objp);
 #define VM_CAN_NONLINEAR 0x08000000	/* Has ->fault & does nonlinear pages */
 #define VM_MIXEDMAP	0x10000000	/* Can contain "struct page" and pure PFN pages */
 #define VM_SAO		0x20000000	/* Strong Access Ordering (powerpc) */
+/*
+ * arch_calc_vm_prot_bits() only sets VM_SAO from PROT_SAO on powerpc;
+ * no ARM mmap path ever tests or sets it, so its bit carries
+ * VM_WIPEONFORK on this ARM-only tree instead.
+ */
+#define VM_WIPEONFORK	0x20000000	/* Wipe VMA contents in child. */
 #define VM_PFN_AT_MMAP	0x40000000	/* PFNMAP vma that is fully mapped at mmap time */
 #define VM_MERGEABLE	0x80000000	/* KSM may merge identical pages */
 
