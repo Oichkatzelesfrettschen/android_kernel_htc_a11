@@ -40,17 +40,6 @@ struct gpu_meta_data {
 
 } *gpu_data;
 
-static inline int get_freq_num(struct devfreq *df) {
-
-	int num = 0; 
-	int i;
-
-	for (i = 0; df->profile->freq_table[i]; i++)
-		num++;
-
-	return num;
-}
-
 static int devfreq_simple_ondemand_func(struct devfreq *df,
 					unsigned long *freq,
 					u32 *flag)
@@ -58,6 +47,12 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 	struct devfreq_dev_status stat;
 	int ret = 0;
 	unsigned long max = (df->max_freq) ? df->max_freq : UINT_MAX;
+
+	/* max_state bounds the frequency table; the table has no sentinel. */
+	if (!df->profile->freq_table || !df->profile->max_state)
+		return -EINVAL;
+	if (gpu_data->level >= df->profile->max_state)
+		gpu_data->level = df->profile->max_state - 1;
 
 	stat.private_data = NULL;
 
@@ -100,7 +95,7 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 		if (gpu_data->level > 0)		
 			gpu_data->level--;		
 	} else if (gpu_data->load <= gpu_data->dfso_downdifferential) {
-		if (gpu_data->level < get_freq_num(df))		
+		if (gpu_data->level < df->profile->max_state - 1)
 			gpu_data->level++;
 	} else {
 		/* If unsure about the frequency, stay at the current */
@@ -244,5 +239,4 @@ static void __exit devfreq_simple_ondemand_exit(void)
 }
 module_exit(devfreq_simple_ondemand_exit);
 MODULE_LICENSE("GPL");
-
 
