@@ -281,7 +281,8 @@ static inline pid_t seccomp_can_sync_threads(void)
 
 	/* Validate all threads being eligible for synchronization. */
 	caller = current;
-	for_each_thread(caller, thread) {
+	for (thread = next_thread(caller); thread != caller;
+	     thread = next_thread(thread)) {
 		pid_t failed;
 
 		/* Skip current, since it is initiating the sync. */
@@ -322,7 +323,8 @@ static inline void seccomp_sync_threads(void)
 
 	/* Synchronize all threads. */
 	caller = current;
-	for_each_thread(caller, thread) {
+	for (thread = next_thread(caller); thread != caller;
+	     thread = next_thread(thread)) {
 		/* Skip current, since it needs no changes. */
 		if (thread == caller)
 			continue;

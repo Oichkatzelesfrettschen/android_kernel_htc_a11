@@ -1,4 +1,5 @@
 config ARM
+	select HAVE_ARCH_SECCOMP_FILTER
 	bool
 	default y
 	select HAVE_AOUT
