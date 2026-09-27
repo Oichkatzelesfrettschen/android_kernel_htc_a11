@@ -293,6 +293,9 @@ struct policydb {
 	size_t len;
 
 	unsigned int policyvers;
+	/* Version 30 has two incompatible extended-permission encodings. */
+	u8 legacy_avtab;
+	u8 has_extended_perms;
 
 	unsigned int reject_unknown : 1;
 	unsigned int allow_unknown : 1;
@@ -367,4 +370,3 @@ extern u16 string_to_security_class(struct policydb *p, const char *name);
 extern u32 string_to_av_perm(struct policydb *p, u16 tclass, const char *name);
 
 #endif	/* _SS_POLICYDB_H_ */
-

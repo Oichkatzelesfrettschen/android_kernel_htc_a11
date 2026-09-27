@@ -354,6 +354,7 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 {
 	__le16 buf16[4];
 	u16 enabled;
+	u16 legacy_specified;
 	u32 items, items2, val, vers = pol->policyvers;
 	struct avtab_key key;
 	struct avtab_datum datum;
@@ -448,6 +449,16 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 	key.target_type = le16_to_cpu(buf16[items++]);
 	key.target_class = le16_to_cpu(buf16[items++]);
 	key.specified = le16_to_cpu(buf16[items++]);
+	legacy_specified = key.specified & AVTAB_LEGACY_OPTYPE;
+	if (pol->legacy_avtab && legacy_specified) {
+		if (key.specified & AVTAB_XPERMS)
+			return -EINVAL;
+		key.specified = (key.specified & ~AVTAB_LEGACY_OPTYPE) |
+				(legacy_specified >> 4);
+	}
+	if (key.specified & ~(AVTAB_AV | AVTAB_TYPE | AVTAB_XPERMS |
+			      AVTAB_ENABLED))
+		return -EINVAL;
 
 	if (!policydb_type_isvalid(pol, key.source_type) ||
 	    !policydb_type_isvalid(pol, key.target_type) ||
@@ -474,10 +485,17 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 		return -EINVAL;
 	} else if (key.specified & AVTAB_XPERMS) {
 		memset(&xperms, 0, sizeof(struct avtab_extended_perms));
-		rc = next_entry(&xperms.specified, fp, sizeof(u8));
-		if (rc) {
-			printk(KERN_ERR "SELinux: avtab: truncated entry\n");
-			return rc;
+		if (pol->legacy_avtab)
+			xperms.specified = legacy_specified ?
+				AVTAB_XPERMS_IOCTLDRIVER :
+				AVTAB_XPERMS_IOCTLFUNCTION;
+		else {
+			rc = next_entry(&xperms.specified, fp, sizeof(u8));
+			if (rc)
+				return rc;
+			if (xperms.specified != AVTAB_XPERMS_IOCTLDRIVER &&
+			    xperms.specified != AVTAB_XPERMS_IOCTLFUNCTION)
+				return -EINVAL;
 		}
 		rc = next_entry(&xperms.driver, fp, sizeof(u8));
 		if (rc) {
@@ -492,6 +510,7 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 		for (i = 0; i < ARRAY_SIZE(xperms.perms.p); i++)
 			xperms.perms.p[i] = le32_to_cpu(buf32[i]);
 		datum.u.xperms = &xperms;
+		pol->has_extended_perms = 1;
 	} else {
 		rc = next_entry(buf32, fp, sizeof(u32));
 		if (rc) {
@@ -564,19 +583,27 @@ int avtab_write_item(struct policydb *p, struct avtab_node *cur, void *fp)
 	__le32 buf32[ARRAY_SIZE(cur->datum.u.xperms->perms.p)];
 	int rc;
 	unsigned int i;
+	u16 specified = cur->key.specified;
 
 	buf16[0] = cpu_to_le16(cur->key.source_type);
 	buf16[1] = cpu_to_le16(cur->key.target_type);
 	buf16[2] = cpu_to_le16(cur->key.target_class);
-	buf16[3] = cpu_to_le16(cur->key.specified);
+	if (p->legacy_avtab && (specified & AVTAB_XPERMS) &&
+	    cur->datum.u.xperms->specified == AVTAB_XPERMS_IOCTLDRIVER)
+		specified = (specified & ~AVTAB_XPERMS) |
+			((specified & AVTAB_XPERMS) << 4);
+	buf16[3] = cpu_to_le16(specified);
 	rc = put_entry(buf16, sizeof(u16), 4, fp);
 	if (rc)
 		return rc;
 
 	if (cur->key.specified & AVTAB_XPERMS) {
-		rc = put_entry(&cur->datum.u.xperms->specified, sizeof(u8), 1, fp);
-		if (rc)
-			return rc;
+		if (!p->legacy_avtab) {
+			rc = put_entry(&cur->datum.u.xperms->specified,
+				       sizeof(u8), 1, fp);
+			if (rc)
+				return rc;
+		}
 		rc = put_entry(&cur->datum.u.xperms->driver, sizeof(u8), 1, fp);
 		if (rc)
 			return rc;

@@ -2271,7 +2271,8 @@ out:
  * Read the configuration data from a policy database binary
  * representation file into a policy database structure.
  */
-int policydb_read(struct policydb *p, void *fp)
+static int policydb_read_format(struct policydb *p, void *fp,
+				int legacy_avtab)
 {
 	struct role_allow *ra, *lra;
 	struct role_trans *tr, *ltr;
@@ -2285,6 +2286,7 @@ int policydb_read(struct policydb *p, void *fp)
 	rc = policydb_init(p);
 	if (rc)
 		return rc;
+	p->legacy_avtab = legacy_avtab;
 
 	/* Read the magic number and string length. */
 	rc = next_entry(buf, fp, sizeof(u32) * 2);
@@ -2303,7 +2305,7 @@ int policydb_read(struct policydb *p, void *fp)
 	len = le32_to_cpu(buf[1]);
 	if (len != strlen(POLICYDB_STRING)) {
 		printk(KERN_ERR "SELinux:  policydb string length %d does not "
-		       "match expected length %Zu\n",
+		       "match expected length %zu\n",
 		       len, strlen(POLICYDB_STRING));
 		goto bad;
 	}
@@ -2548,12 +2550,59 @@ int policydb_read(struct policydb *p, void *fp)
 	if (rc)
 		goto bad;
 
+	if (((struct policy_file *)fp)->len) {
+		rc = -EINVAL;
+		goto bad;
+	}
 	rc = 0;
 out:
 	return rc;
 bad:
 	policydb_destroy(p);
 	goto out;
+}
+
+int policydb_read(struct policydb *p, void *fp)
+{
+	struct policy_file input = *(struct policy_file *)fp;
+	struct policy_file upstream = input, legacy = input;
+	struct policydb alternative;
+	__le32 version;
+	int upstream_rc, legacy_rc;
+
+	/* Version 30 identifies both layouts, so only a complete parse selects one. */
+	upstream_rc = policydb_read_format(p, &upstream, 0);
+	if (input.len < 20) {
+		if (!upstream_rc)
+			*(struct policy_file *)fp = upstream;
+		return upstream_rc;
+	}
+	memcpy(&version, input.data + 16, sizeof(version));
+	if (le32_to_cpu(version) != POLICYDB_VERSION_XPERMS_IOCTL) {
+		if (!upstream_rc)
+			*(struct policy_file *)fp = upstream;
+		return upstream_rc;
+	}
+
+	if (upstream_rc) {
+		legacy_rc = policydb_read_format(p, &legacy, 1);
+		if (!legacy_rc)
+			*(struct policy_file *)fp = legacy;
+		return legacy_rc;
+	}
+
+	legacy_rc = policydb_read_format(&alternative, &legacy, 1);
+	if (!legacy_rc) {
+		/* Policies without extended rules have identical wire semantics. */
+		if (p->has_extended_perms || alternative.has_extended_perms) {
+			policydb_destroy(&alternative);
+			policydb_destroy(p);
+			return -EINVAL;
+		}
+		policydb_destroy(&alternative);
+	}
+	*(struct policy_file *)fp = upstream;
+	return 0;
 }
 
 /*

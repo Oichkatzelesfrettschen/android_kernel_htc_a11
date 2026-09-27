@@ -44,6 +44,8 @@ struct avtab_key {
 #define AVTAB_XPERMS		(AVTAB_XPERMS_ALLOWED | \
 				AVTAB_XPERMS_AUDITALLOW | \
 				AVTAB_XPERMS_DONTAUDIT)
+/* CM13 policy version 30 uses the same low bits and separate driver bits. */
+#define AVTAB_LEGACY_OPTYPE	0x7000
 #define AVTAB_ENABLED_OLD   0x80000000 /* reserved for used in cond_avtab */
 #define AVTAB_ENABLED		0x8000 /* reserved for used in cond_avtab */
 	u16 specified;	/* what field is specified */
@@ -120,4 +122,3 @@ void avtab_cache_destroy(void);
 #define MAX_AVTAB_HASH_BUCKETS (1 << MAX_AVTAB_HASH_BITS)
 
 #endif	/* _SS_AVTAB_H_ */
-
