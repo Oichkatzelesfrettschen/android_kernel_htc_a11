@@ -28,8 +28,8 @@ struct gpio_event {
 	struct gpio_event_input_devs *input_devs;
 	const struct gpio_event_platform_data *info;
 	struct early_suspend early_suspend;
-	void *state[0];
 	uint8_t rrm1_mode;
+	void *state[0];
 };
 
 static int gpio_input_event(
@@ -402,4 +402,3 @@ module_platform_driver(gpio_event_driver);
 
 MODULE_DESCRIPTION("GPIO Event Driver");
 MODULE_LICENSE("GPL");
-
