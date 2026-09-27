@@ -642,8 +642,9 @@ ifeq ($(findstring opensource, $(WLAN_ROOT)), opensource)
 CDEFINES += -DWLAN_OPEN_SOURCE
 endif
 
-# Fix build for GCC 4.7
-EXTRA_CFLAGS += -Wno-maybe-uninitialized -Wno-unused-function
+# GCC and Clang accept different warning names for the WLAN sources.
+EXTRA_CFLAGS += $(call cc-disable-warning,maybe-uninitialized) \
+	$(call cc-disable-warning,unused-function)
 
 KBUILD_CPPFLAGS += $(CDEFINES)
 
