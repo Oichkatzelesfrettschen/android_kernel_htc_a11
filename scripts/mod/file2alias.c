@@ -72,10 +72,11 @@ extern struct devtable *__start___devtable[], *__stop___devtable[];
 #endif
 
 #define ADD_TO_DEVTABLE(device_id, type, function) \
+	enum { __cat(devtable_check,__LINE__) = \
+		sizeof((function)((const char *)NULL, \
+				 (type *)NULL, (char *)NULL)) }; \
 	static struct devtable __cat(devtable,__LINE__) = {	\
-		device_id + 0*sizeof((function)((const char *)NULL,	\
-						(type *)NULL,		\
-						(char *)NULL)),		\
+		device_id,						\
 		sizeof(type), (function) };				\
 	static struct devtable *SECTION(__devtable) __used \
 		__cat(devtable_ptr,__LINE__) = &__cat(devtable,__LINE__)
@@ -109,6 +110,7 @@ static void add_alias_field(char *alias, const char *separator,
 	case 4: digits = 8; break;
 	default:
 		fatal("unsupported module alias field size %zu\n", value_size);
+		return;
 	}
 	written = snprintf(alias + used, ALIAS_SIZE - used, "%0*X", digits, value);
 	if (written < 0 || (size_t)written >= ALIAS_SIZE - used)
