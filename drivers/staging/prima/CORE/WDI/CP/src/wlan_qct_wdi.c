@@ -764,7 +764,8 @@ void
 WDI_CopyWDIStaCtxToHALStaCtx
 (
   tConfigStaParams*          phalConfigSta,
-  WDI_ConfigStaReqInfoType*  pwdiConfigSta
+  WDI_ConfigStaReqInfoType*  pwdiConfigSta,
+  wpt_boolean                hasV1Storage
 );
 
 /*Translate a Rate set info from WDI into HAL*/
@@ -796,7 +797,8 @@ WPT_STATIC WPT_INLINE void
 WDI_CopyWDIConfigBSSToHALConfigBSS
 (
   tConfigBssParams*         phalConfigBSS,
-  WDI_ConfigBSSReqInfoType* pwdiConfigBSS
+  WDI_ConfigBSSReqInfoType* pwdiConfigBSS,
+  wpt_boolean               hasV1Storage
 );
 
 /*Extract the request CB function and user data from a request structure
@@ -1052,17 +1054,17 @@ static char *WDI_getRespMsgString(wpt_uint16 wdiRespMsgId)
 /**
   @brief WDI_TraceHostFWCapabilities - Parses both host and Firmware
                                          Capability bitmap array.
-  @param capabilityBitmap - Base address of Bitmap array
+  @param capabilities - Packed host or firmware capability message.
   @see
   @returns  None
   */
-void WDI_TraceHostFWCapabilities(tANI_U32 *capabilityBitmap)
+void WDI_TraceHostFWCapabilities(const tWlanFeatCaps *capabilities)
 {
      int i;
      char capStr[512];
      char *pCapStr = capStr;
      for (i = 0; i < 32; i++) {
-          if ((*(capabilityBitmap + 0) & (1 << i))) {
+          if (capabilities->featCaps[0] & (1U << i)) {
                switch(i) {
                      case MCC: snprintf(pCapStr, sizeof("MCC"), "%s", "MCC");
                           pCapStr += strlen("MCC");
@@ -8053,11 +8055,11 @@ WDI_ProcessConfigBSSReq
 #ifdef WLAN_FEATURE_11AC
   if (WDI_getFwWlanFeatCaps(DOT11AC))
     WDI_CopyWDIConfigBSSToHALConfigBSS( (tConfigBssParams*)&halConfigBssReqMsg.uBssParams.configBssParams_V1,
-                                        &pwdiConfigBSSParams->wdiReqInfo);
+                                        &pwdiConfigBSSParams->wdiReqInfo, eWLAN_PAL_TRUE);
   else
 #endif
   WDI_CopyWDIConfigBSSToHALConfigBSS( &halConfigBssReqMsg.uBssParams.configBssParams,
-                                      &pwdiConfigBSSParams->wdiReqInfo);
+                                      &pwdiConfigBSSParams->wdiReqInfo, eWLAN_PAL_FALSE);
 
   /* Need to fill in the STA Index to invalid, since at this point we have not
      yet received it from HAL */
@@ -8368,9 +8370,9 @@ WDI_ProcessPostAssocReq
      return WDI_STATUS_E_FAILURE;
   }
 
-  /*Copy the STA parameters */
+  /* Post-association messages contain the legacy STA and BSS layouts. */
   WDI_CopyWDIStaCtxToHALStaCtx(&halPostAssocReqMsg.postAssocReqParams.configStaParams,
-                               &pwdiPostAssocParams->wdiSTAParams );
+                               &pwdiPostAssocParams->wdiSTAParams, eWLAN_PAL_FALSE);
 
   /* Need to fill in the self STA Index */
   if ( WDI_STATUS_SUCCESS !=
@@ -8391,7 +8393,7 @@ WDI_ProcessPostAssocReq
 
   /*Copy the BSS parameters */
   WDI_CopyWDIConfigBSSToHALConfigBSS( &halPostAssocReqMsg.postAssocReqParams.configBssParams,
-                                      &pwdiPostAssocParams->wdiBSSParams);
+                                      &pwdiPostAssocParams->wdiBSSParams, eWLAN_PAL_FALSE);
 
   /* Need to fill in the STA index of the peer */
   if ( WDI_STATUS_SUCCESS !=
@@ -11346,7 +11348,8 @@ WDI_ProcessConfigStaReq
 
   /*Copy the station context*/
   WDI_CopyWDIStaCtxToHALStaCtx( &halConfigStaReqMsg.uStaParams.configStaParams,
-                                &pwdiConfigSTAParams->wdiReqInfo);
+                                &pwdiConfigSTAParams->wdiReqInfo,
+                                uMsgSize == sizeof(tConfigStaParams_V1));
 
   if(pwdiConfigSTAParams->wdiReqInfo.wdiSTAType == WDI_STA_ENTRY_SELF)
   {
@@ -23267,14 +23270,15 @@ void
 WDI_CopyWDIStaCtxToHALStaCtx
 (
   tConfigStaParams*          phalConfigSta,
-  WDI_ConfigStaReqInfoType*  pwdiConfigSta
+  WDI_ConfigStaReqInfoType*  pwdiConfigSta,
+  wpt_boolean                hasV1Storage
 )
 {
    wpt_uint8 i;
 #ifdef WLAN_FEATURE_11AC
    /* Get the Version 1 Handler */
    tConfigStaParams_V1* phalConfigSta_V1 = NULL;
-   if (WDI_getFwWlanFeatCaps(DOT11AC))
+   if (hasV1Storage)
    {
       phalConfigSta_V1 = (tConfigStaParams_V1*)phalConfigSta;
    }
@@ -23452,7 +23456,8 @@ WPT_STATIC WPT_INLINE void
 WDI_CopyWDIConfigBSSToHALConfigBSS
 (
   tConfigBssParams*         phalConfigBSS,
-  WDI_ConfigBSSReqInfoType* pwdiConfigBSS
+  WDI_ConfigBSSReqInfoType* pwdiConfigBSS,
+  wpt_boolean               hasV1Storage
 )
 {
 
@@ -23460,7 +23465,7 @@ WDI_CopyWDIConfigBSSToHALConfigBSS
 #ifdef WLAN_FEATURE_11AC
   /* Get the Version 1 Handler */
   tConfigBssParams_V1* phalConfigBSS_V1 = NULL;
-  if (WDI_getFwWlanFeatCaps(DOT11AC))
+  if (hasV1Storage)
      phalConfigBSS_V1 = (tConfigBssParams_V1*)phalConfigBSS;
 #endif
 
@@ -23520,8 +23525,15 @@ WDI_CopyWDIConfigBSSToHALConfigBSS
                  pwdiConfigBSS->wdiSSID.sSSID,
                  phalConfigBSS->ssId.length);
 
-  WDI_CopyWDIStaCtxToHALStaCtx( &phalConfigBSS->staContext,
-                                &pwdiConfigBSS->wdiSTAContext);
+#ifdef WLAN_FEATURE_11AC
+  if (hasV1Storage)
+    WDI_CopyWDIStaCtxToHALStaCtx(
+      (tConfigStaParams *)&phalConfigBSS_V1->staContext,
+      &pwdiConfigBSS->wdiSTAContext, eWLAN_PAL_TRUE);
+  else
+#endif
+    WDI_CopyWDIStaCtxToHALStaCtx( &phalConfigBSS->staContext,
+                                  &pwdiConfigBSS->wdiSTAContext, eWLAN_PAL_FALSE);
 
   WDI_CopyWDIRateSetToHALRateSet( &phalConfigBSS->rateSet,
                                   &pwdiConfigBSS->wdiRateSet);
@@ -24639,6 +24651,8 @@ WDI_PackRoamScanOffloadParams
    wpt_uint16                 usDataOffset               = 0;
    wpt_uint16                 usSendSize                 = 0;
    tpRoamCandidateListParams  pRoamCandidateListParams   = NULL;
+   tEdType                    encryption                = 0;
+   tEdType                    multicastEncryption       = 0;
    wpt_uint8 i;
    /*-----------------------------------------------------------------------
      Get message buffer
@@ -24661,10 +24675,12 @@ WDI_PackRoamScanOffloadParams
                   pwdiRoamScanOffloadReqParams->wdiRoamOffloadScanInfo.ConnectedNetwork.currAPbssid,
                   HAL_MAC_ADDR_LEN);
    pRoamCandidateListParams->ConnectedNetwork.authentication = pwdiRoamScanOffloadReqParams->wdiRoamOffloadScanInfo.ConnectedNetwork.authentication;
-   WDI_wdiEdTypeEncToEdTypeEnc(&pRoamCandidateListParams->ConnectedNetwork.encryption,
+   WDI_wdiEdTypeEncToEdTypeEnc(&encryption,
                                pwdiRoamScanOffloadReqParams->wdiRoamOffloadScanInfo.ConnectedNetwork.encryption);
-   WDI_wdiEdTypeEncToEdTypeEnc(&pRoamCandidateListParams->ConnectedNetwork.mcencryption,
+   WDI_wdiEdTypeEncToEdTypeEnc(&multicastEncryption,
                                pwdiRoamScanOffloadReqParams->wdiRoamOffloadScanInfo.ConnectedNetwork.mcencryption);
+   pRoamCandidateListParams->ConnectedNetwork.encryption = encryption;
+   pRoamCandidateListParams->ConnectedNetwork.mcencryption = multicastEncryption;
 
    pRoamCandidateListParams->ConnectedNetwork.ssId.length
                 = pwdiRoamScanOffloadReqParams->wdiRoamOffloadScanInfo.ConnectedNetwork.ssId.ucLength;
@@ -27516,7 +27532,7 @@ WDI_featureCapsExchangeReq
       gpHostWlanFeatCaps->featCaps[3]
    );
    WPAL_TRACE( eWLAN_MODULE_DAL_CTRL,  eWLAN_PAL_TRACE_LEVEL_ERROR, "Host Capability");
-   WDI_TraceHostFWCapabilities(gpHostWlanFeatCaps->featCaps);
+   WDI_TraceHostFWCapabilities(gpHostWlanFeatCaps);
    wdiEventData.wdiRequest      = WDI_FEATURE_CAPS_EXCHANGE_REQ;
    wdiEventData.pEventData      = gpHostWlanFeatCaps; 
    wdiEventData.uEventDataSize  = fCapsStructSize; 
@@ -27684,7 +27700,7 @@ WDI_ProcessFeatureCapsExchangeRsp
       gpFwWlanFeatCaps->featCaps[3]
    );
    WPAL_TRACE(  eWLAN_MODULE_DAL_CTRL,  eWLAN_PAL_TRACE_LEVEL_ERROR, "Firmware Capability");
-   WDI_TraceHostFWCapabilities(gpFwWlanFeatCaps->featCaps);
+   WDI_TraceHostFWCapabilities(gpFwWlanFeatCaps);
    wdiFeatureCapsExchangeCb = (WDI_featureCapsExchangeCb) pWDICtx -> pfncRspCB; 
 
    /*Notify UMAC - there is no callback right now but can be used in future if reqd */
