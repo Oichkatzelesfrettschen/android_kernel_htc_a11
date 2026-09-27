@@ -685,21 +685,12 @@ static int __devinit msm_mpm_dev_probe(struct platform_device *pdev)
 	return 0;
 }
 
-/*
- * mpm_of_map[]'s get_max_irqs pointers are read from of_mpm_init()'s own
- * stack frame, but modpost's section-mismatch pass attributes the
- * .init.text reference to the nearest preceding non-static symbol
- * (msm_mpm_debug_mask) instead of the real, __init-safe caller. Dropping
- * __init here (both functions are one-line struct-field accessors the
- * compiler inlines on -O2) removes the false section mismatch without
- * changing code generation.
- */
-static inline int mpm_irq_domain_linear_size(struct irq_domain *d)
+static inline int __init mpm_irq_domain_linear_size(struct irq_domain *d)
 {
 	return d->revmap_data.linear.size;
 }
 
-static inline int mpm_irq_domain_legacy_size(struct irq_domain *d)
+static inline int __init mpm_irq_domain_legacy_size(struct irq_domain *d)
 {
 	return d->revmap_data.legacy.size;
 }
@@ -717,7 +708,17 @@ void __init of_mpm_init(struct device_node *node)
 	};
 	int i;
 
-	struct mpm_of mpm_of_map[MSM_MPM_NR_IRQ_DOMAINS] = {
+	/*
+	 * A non-static local aggregate's initializer carries no symbol of
+	 * its own, so modpost's section-mismatch pass attributes its
+	 * get_max_irqs relocations against mpm_irq_domain_linear_size()/
+	 * _legacy_size() to the nearest preceding global symbol,
+	 * msm_mpm_debug_mask, and reports .data -> .init.text. __initconst
+	 * gives the table its own symbol in .init.rodata, so the reference
+	 * modpost sees is .init.rodata -> .init.text, the legal direction
+	 * (both ranges are freed together after init).
+	 */
+	static const struct mpm_of mpm_of_map[MSM_MPM_NR_IRQ_DOMAINS] __initconst = {
 		{
 			"qcom,gic-parent",
 			"qcom,gic-map",
