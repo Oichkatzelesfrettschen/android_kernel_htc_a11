@@ -522,9 +522,7 @@ static void android_disable(struct android_dev *dev)
  * configuration binds with the pullup off, and the host sees one
  * disconnect of hold_ms. The pullup changes state only when
  * disable_depth or pullup_hold crosses zero, so every
- * usb_gadget_disconnect() pairs with one usb_gadget_connect(); an
- * unpaired disconnect leaves dwc3 running with its IRQ masked, because
- * dwc3_gadget_pullup() calls disable_irq() on every disconnect.
+ * usb_gadget_disconnect() pairs with one usb_gadget_connect().
  */
 static void android_force_reenumerate(struct usb_composite_dev *cdev,
 				      unsigned int hold_ms)
