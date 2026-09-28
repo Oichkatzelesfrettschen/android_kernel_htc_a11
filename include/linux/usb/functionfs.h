@@ -13,6 +13,7 @@ enum {
 	FUNCTIONFS_STRINGS_MAGIC     = 2
 };
 
+#define FUNCTIONFS_SS_DESC_MAGIC 0x0055DE5C
 
 #ifndef __KERNEL__
 
@@ -50,7 +51,11 @@ struct usb_functionfs_descs_head {
  * |  12 | hs_count  | LE32         | number of high-speed descriptors     |
  * |  16 | fs_descrs | Descriptor[] | list of full-speed descriptors       |
  * |     | hs_descrs | Descriptor[] | list of high-speed descriptors       |
+ * |     | ss_magic  | LE32         | FUNCTIONFS_SS_DESC_MAGIC             |
+ * |     | ss_count  | LE32         | number of super-speed descriptors    |
+ * |     | ss_descrs | Descriptor[] | list of super-speed descriptors      |
  *
+ * ss_magic: if present then it implies that SS_DESCs are also present
  * descs are just valid USB descriptors and have the following format:
  *
  * | off | name            | type | description              |
@@ -164,6 +169,11 @@ struct usb_functionfs_event {
  */
 #define	FUNCTIONFS_ENDPOINT_REVMAP	_IO('g', 129)
 
+/*
+ * Returns endpoint descriptor. If function is not active returns -ENODEV.
+ */
+#define FUNCTIONFS_ENDPOINT_DESC    _IOR('g', 130, \
+						struct usb_endpoint_descriptor)
 
 #ifdef __KERNEL__
 
@@ -190,8 +200,10 @@ static int functionfs_ready_callback(struct ffs_data *ffs)
 	__attribute__((warn_unused_result, nonnull));
 static void functionfs_closed_callback(struct ffs_data *ffs)
 	__attribute__((nonnull));
-static int functionfs_check_dev_callback(const char *dev_name)
+static void *functionfs_acquire_dev_callback(const char *dev_name)
 	__attribute__((warn_unused_result, nonnull));
+static void functionfs_release_dev_callback(struct ffs_data *ffs_data)
+	__attribute__((nonnull));
 
 
 #endif
