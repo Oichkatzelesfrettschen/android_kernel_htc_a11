@@ -708,7 +708,13 @@ void __init of_mpm_init(struct device_node *node)
 	};
 	int i;
 
-	struct mpm_of mpm_of_map[MSM_MPM_NR_IRQ_DOMAINS] = {
+	/*
+	 * __initconst places this table in .init.rodata, alongside the
+	 * __init get_max_irqs functions its entries point to; both ranges
+	 * are freed together once of_mpm_init() returns, so the reference
+	 * is safe for the kernel to make and safe for modpost to allow.
+	 */
+	static const struct mpm_of mpm_of_map[MSM_MPM_NR_IRQ_DOMAINS] __initconst = {
 		{
 			"qcom,gic-parent",
 			"qcom,gic-map",
