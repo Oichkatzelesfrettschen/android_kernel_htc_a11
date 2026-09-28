@@ -473,7 +473,7 @@ eHalStatus csrUpdateChannelList(tCsrScanStruct *pScan)
         pChanList->chanParam[i].pwr = pScan->defaultPowerTable[i].pwr;
     }
 
-    if(VOS_STATUS_SUCCESS != vos_mq_post_message(VOS_MODULE_ID_WDA, &msg))
+    if(VOS_STATUS_SUCCESS != vos_mq_post_message(VOS_MQ_ID_WDA, &msg))
     {
         VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_FATAL,
                 "%s: Failed to post msg to WDA", __func__);
@@ -2777,9 +2777,9 @@ eHalStatus csrRoamPrepareBssConfig(tpAniSirGlobal pMac, tCsrRoamProfile *pProfil
 
         if (((pBssConfig->uCfgDot11Mode == eCSR_CFG_DOT11_MODE_11N)  || 
                          (pBssConfig->uCfgDot11Mode == eCSR_CFG_DOT11_MODE_11AC)) &&
-                         ((pBssConfig->qosType != eCSR_MEDIUM_ACCESS_WMM_eDCF_DSCP) ||
-                          (pBssConfig->qosType != eCSR_MEDIUM_ACCESS_11e_HCF) ||
-                          (pBssConfig->qosType != eCSR_MEDIUM_ACCESS_11e_eDCF) ))
+                         ((pBssConfig->qosType != eCSR_MEDIUM_ACCESS_WMM_eDCF_DSCP) &&
+                          (pBssConfig->qosType != eCSR_MEDIUM_ACCESS_11e_HCF) &&
+                          (pBssConfig->qosType != eCSR_MEDIUM_ACCESS_11e_eDCF)))
         {
             //Joining BSS is 11n capable and WMM is disabled on AP.
             //Assume all HT AP's are QOS AP's and enable WMM
@@ -15088,7 +15088,7 @@ eHalStatus csrRoamOffloadScan(tpAniSirGlobal pMac, tANI_U8 command, tANI_U8 reas
    msg.type     = WDA_ROAM_SCAN_OFFLOAD_REQ;
    msg.reserved = 0;
    msg.bodyptr  = pRequestBuf;
-   if (!VOS_IS_STATUS_SUCCESS(vos_mq_post_message(VOS_MODULE_ID_WDA, &msg)))
+   if (!VOS_IS_STATUS_SUCCESS(vos_mq_post_message(VOS_MQ_ID_WDA, &msg)))
    {
        VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR, "%s: Not able to post WDA_ROAM_SCAN_OFFLOAD_REQ message to WDA", __func__);
        vos_mem_free(pRequestBuf);

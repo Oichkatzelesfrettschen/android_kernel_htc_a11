@@ -750,27 +750,31 @@ limLookupNaddHashEntry(tpAniSirGlobal pMac,
                 {
                     //We get a different, save the old frame WSC IE if it is there
                     idx = 0;
-                    len = ptemp->bssDescription.length - sizeof(tSirBssDescription) + 
-                       sizeof(tANI_U16) + sizeof(tANI_U32) - DOT11F_IE_WSCPROBERES_MIN_LEN - 2;
+                    len = (int)ptemp->bssDescription.length -
+                       (int)(sizeof(tSirBssDescription) - sizeof(tANI_U32) - sizeof(tANI_U16));
                     pbIe = (tANI_U8 *)ptemp->bssDescription.ieFields;
                     //Save WPS IE if it exists
                     pBssDescr->bssDescription.WscIeLen = 0;
-                    while(idx < len)
+                    while (len - idx >= DOT11F_IE_WSCPROBERES_MIN_LEN + 2)
                     {
+                        int ieLen = pbIe[1] + 2;
+
+                        if (ieLen > len - idx)
+                            break;
                         if((DOT11F_EID_WSCPROBERES == pbIe[0]) &&
                            (0x00 == pbIe[2]) && (0x50 == pbIe[3]) && (0xf2 == pbIe[4]) && (0x04 == pbIe[5]))
                         {
                             //Found it
-                            if((DOT11F_IE_WSCPROBERES_MAX_LEN - 2) >= pbIe[1])
+                            if (ieLen <= sizeof(pBssDescr->bssDescription.WscIeProbeRsp))
                             {
                                 vos_mem_copy(pBssDescr->bssDescription.WscIeProbeRsp,
-                                   pbIe, pbIe[1] + 2);
-                                pBssDescr->bssDescription.WscIeLen = pbIe[1] + 2;
+                                   pbIe, ieLen);
+                                pBssDescr->bssDescription.WscIeLen = ieLen;
                             }
                             break;
                         }
-                        idx += pbIe[1] + 2;
-                        pbIe += pbIe[1] + 2;
+                        idx += ieLen;
+                        pbIe += ieLen;
                     }
                 }
 
@@ -972,28 +976,32 @@ limLookupNaddLfrHashEntry(tpAniSirGlobal pMac,
                 {
                     //We get a different, save the old frame WSC IE if it is there
                     idx = 0;
-                    len = ptemp->bssDescription.length - sizeof(tSirBssDescription) +
-                       sizeof(tANI_U16) + sizeof(tANI_U32) - DOT11F_IE_WSCPROBERES_MIN_LEN - 2;
+                    len = (int)ptemp->bssDescription.length -
+                       (int)(sizeof(tSirBssDescription) - sizeof(tANI_U32) - sizeof(tANI_U16));
                     pbIe = (tANI_U8 *)ptemp->bssDescription.ieFields;
                     //Save WPS IE if it exists
                     pBssDescr->bssDescription.WscIeLen = 0;
-                    while(idx < len)
+                    while (len - idx >= DOT11F_IE_WSCPROBERES_MIN_LEN + 2)
                     {
+                        int ieLen = pbIe[1] + 2;
+
+                        if (ieLen > len - idx)
+                            break;
                         if((DOT11F_EID_WSCPROBERES == pbIe[0]) &&
                            (0x00 == pbIe[2]) && (0x50 == pbIe[3]) &&
                            (0xf2 == pbIe[4]) && (0x04 == pbIe[5]))
                         {
                             //Found it
-                            if((DOT11F_IE_WSCPROBERES_MAX_LEN - 2) >= pbIe[1])
+                            if (ieLen <= sizeof(pBssDescr->bssDescription.WscIeProbeRsp))
                             {
                                 vos_mem_copy( pBssDescr->bssDescription.WscIeProbeRsp,
-                                   pbIe, pbIe[1] + 2);
-                                pBssDescr->bssDescription.WscIeLen = pbIe[1] + 2;
+                                   pbIe, ieLen);
+                                pBssDescr->bssDescription.WscIeLen = ieLen;
                             }
                             break;
                         }
-                        idx += pbIe[1] + 2;
-                        pbIe += pbIe[1] + 2;
+                        idx += ieLen;
+                        pbIe += ieLen;
                     }
                 }
 

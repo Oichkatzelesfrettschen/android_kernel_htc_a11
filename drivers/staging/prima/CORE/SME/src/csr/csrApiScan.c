@@ -2569,27 +2569,31 @@ void csrCheckNSaveWscIe(tpAniSirGlobal pMac, tSirBssDescription *pNewBssDescr, t
        (0 == pNewBssDescr->WscIeLen))
     {
         idx = 0;
-        len = pOldBssDescr->length - sizeof(tSirBssDescription) + 
-                sizeof(tANI_U16) + sizeof(tANI_U32) - DOT11F_IE_WSCPROBERES_MIN_LEN - 2;
+        len = (int)pOldBssDescr->length -
+                (int)(sizeof(tSirBssDescription) - sizeof(tANI_U32) - sizeof(tANI_U16));
         pbIe = (tANI_U8 *)pOldBssDescr->ieFields;
         //Save WPS IE if it exists
         pNewBssDescr->WscIeLen = 0;
-        while(idx < len)
+        while (len - idx >= DOT11F_IE_WSCPROBERES_MIN_LEN + 2)
         {
+            int ieLen = pbIe[1] + 2;
+
+            if (ieLen > len - idx)
+                break;
             if((DOT11F_EID_WSCPROBERES == pbIe[0]) &&
                 (0x00 == pbIe[2]) && (0x50 == pbIe[3]) && (0xf2 == pbIe[4]) && (0x04 == pbIe[5]))
             {
                 //Founrd it
-                if((DOT11F_IE_WSCPROBERES_MAX_LEN - 2) >= pbIe[1])
+                if (ieLen <= sizeof(pNewBssDescr->WscIeProbeRsp))
                 {
                     palCopyMemory(pMac->hHdd, pNewBssDescr->WscIeProbeRsp,
-                                   pbIe, pbIe[1] + 2);
-                    pNewBssDescr->WscIeLen = pbIe[1] + 2;
+                                   pbIe, ieLen);
+                    pNewBssDescr->WscIeLen = ieLen;
                 }
                 break;
             }
-            idx += pbIe[1] + 2;
-            pbIe += pbIe[1] + 2;
+            idx += ieLen;
+            pbIe += ieLen;
         }
     }
 }
@@ -7732,7 +7736,7 @@ eHalStatus csrScanCreateEntryInScanCache(tpAniSirGlobal pMac, tANI_U32 sessionId
     eHalStatus status = eHAL_STATUS_SUCCESS;
     tDot11fBeaconIEs *pNewIes = NULL;
     tCsrRoamSession *pSession = CSR_GET_SESSION( pMac, sessionId );
-    tSirBssDescription *pNewBssDescriptor;
+    tSirBssDescription *pNewBssDescriptor = NULL;
     tANI_U32 size = 0;
 
     if(NULL == pSession)

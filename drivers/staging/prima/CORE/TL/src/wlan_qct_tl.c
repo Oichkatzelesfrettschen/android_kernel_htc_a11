@@ -6563,7 +6563,7 @@ WLANTL_TLDebugMessage
         vosMsg.bodyptr  = NULL;
         vosMsg.type     = WLANTL_TX_SNAPSHOT;
 
-        status = vos_tx_mq_serialize( VOS_MODULE_ID_TL, &vosMsg);
+        status = vos_tx_mq_serialize( VOS_MQ_ID_TL, &vosMsg);
         if(status != VOS_STATUS_SUCCESS)
         {
             TLLOGE(VOS_TRACE(VOS_MODULE_ID_TL, VOS_TRACE_LEVEL_ERROR, "TX Msg Posting Failed with status: %d",status));

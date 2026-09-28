@@ -286,7 +286,7 @@ tpPESession peFindSessionByBssIdx(tpAniSirGlobal pMac,  tANI_U8 bssIdx)
         limLog(pMac, LOGE, FL("Invalid sessionId: %d \n "), sessionId);
         return(NULL);
     }
-    if((pMac->lim.gpSession[sessionId].valid == TRUE))
+    if (pMac->lim.gpSession[sessionId].valid == TRUE)
     {
         return(&pMac->lim.gpSession[sessionId]);
     }
@@ -518,7 +518,6 @@ tpPESession peFindSessionByPeerSta(tpAniSirGlobal pMac,  tANI_U8*  sa,    tANI_U
    limPrintMacAddr(pMac, sa, LOG1);
    return NULL;
 }
-
 
 
 
