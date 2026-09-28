@@ -155,7 +155,8 @@ static int uhid_hid_get_raw(struct hid_device *hid, unsigned char rnum,
 	unsigned long flags;
 	int ret;
 	size_t uninitialized_var(len);
-	struct uhid_feature_answer_req *req;
+	const u8 *answer;
+	u16 error, size;
 
 	if (!uhid->running)
 		return -EIO;
@@ -208,15 +209,24 @@ static int uhid_hid_get_raw(struct hid_device *hid, unsigned char rnum,
 		ret = -ERESTARTSYS;
 	} else {
 		spin_lock_irqsave(&uhid->qlock, flags);
-		req = &uhid->report_buf.u.feature_answer;
+		answer = (const u8 *)&uhid->report_buf +
+			offsetof(struct uhid_event, u.feature_answer);
+		memcpy(&error, answer +
+		       offsetof(struct uhid_feature_answer_req, err),
+		       sizeof(error));
+		memcpy(&size, answer +
+		       offsetof(struct uhid_feature_answer_req, size),
+		       sizeof(size));
 
-		if (req->err) {
+		if (error) {
 			ret = -EIO;
 		} else {
 			ret = 0;
 			len = min(count,
-				min_t(size_t, req->size, UHID_DATA_MAX));
-			memcpy(buf, req->data, len);
+				min_t(size_t, size, UHID_DATA_MAX));
+			memcpy(buf, answer +
+			       offsetof(struct uhid_feature_answer_req, data),
+			       len);
 		}
 
 		spin_unlock_irqrestore(&uhid->qlock, flags);

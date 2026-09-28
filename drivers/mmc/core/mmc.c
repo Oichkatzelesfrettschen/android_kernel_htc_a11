@@ -811,10 +811,10 @@ do_retry:
 				   "bus width %d ddr %d failed\n",
 				   mmc_hostname(host),
 				   1 << bus_width, ddr);
-			err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-					 EXT_CSD_BUS_WIDTH,
-					 ext_csd_bits[idx][1],
-					 card->ext_csd.generic_cmd6_time);
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+				     EXT_CSD_BUS_WIDTH,
+				     ext_csd_bits[idx][1],
+				     card->ext_csd.generic_cmd6_time);
 	}
 
 out:

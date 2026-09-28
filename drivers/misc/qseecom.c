@@ -1203,16 +1203,17 @@ static int __qseecom_update_cmd_buf(void *msg, bool cleanup,
 				sg_ptr->nents, QSEECOM_MAX_SG_ENTRY);
 			goto err;
 		}
-			sg = sg_ptr->sgl;
+		sg = sg_ptr->sgl;
 		if (sg_ptr->nents == 1) {
 			uint32_t *update;
 			update = (uint32_t *) field;
-			if (cleanup)
+			if (cleanup) {
 				*update = 0;
-			else
+			} else {
 				*update = (uint32_t)sg_dma_address(
 							sg_ptr->sgl);
-				len += (uint32_t)sg->length;
+			}
+			len += (uint32_t)sg->length;
 		} else {
 			struct qseecom_sg_entry *update;
 			int j = 0;

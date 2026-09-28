@@ -275,16 +275,8 @@ static inline void nc_dump_status(struct usbnet *dev, u16 status)
  * TTL register
  */
 
-#define	TTL_THIS(ttl)	(0x00ff & ttl)
 #define	TTL_OTHER(ttl)	(0x00ff & (ttl >> 8))
 #define MK_TTL(this,other)	((u16)(((other)<<8)|(0x00ff&(this))))
-
-static inline void nc_dump_ttl(struct usbnet *dev, u16 ttl)
-{
-	netif_dbg(dev, link, dev->net, "net1080 %s-%s ttl 0x%x this = %d, other = %d\n",
-		  dev->udev->bus->bus_name, dev->udev->devpath,
-		  ttl, TTL_THIS(ttl), TTL_OTHER(ttl));
-}
 
 /*-------------------------------------------------------------------------*/
 
@@ -322,7 +314,6 @@ static int net1080_reset(struct usbnet *dev)
 		goto done;
 	}
 	ttl = *vp;
-	// nc_dump_ttl(dev, ttl);
 
 	nc_register_write(dev, REG_TTL,
 			MK_TTL(NC_READ_TTL_MS, TTL_OTHER(ttl)) );
@@ -417,9 +408,9 @@ static int net1080_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 {
 	struct nc_header	*header;
 	struct nc_trailer	*trailer;
-	u16			hdr_len, packet_len;
+	u16			hdr_len, packet_len, trailer_id;
 
-	if (!(skb->len & 0x01)) {
+	if (skb->len < MIN_FRAMED || !(skb->len & 0x01)) {
 #ifdef DEBUG
 		struct net_device	*net = dev->net;
 		dbg("rx framesize %d range %d..%d mtu %d", skb->len,
@@ -431,8 +422,10 @@ static int net1080_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 	}
 
 	header = (struct nc_header *) skb->data;
-	hdr_len = le16_to_cpup(&header->hdr_len);
-	packet_len = le16_to_cpup(&header->packet_len);
+	hdr_len = get_unaligned_le16((u8 *)header +
+				     offsetof(struct nc_header, hdr_len));
+	packet_len = get_unaligned_le16((u8 *)header +
+					offsetof(struct nc_header, packet_len));
 	if (FRAMED_SIZE(packet_len) > NC_MAX_PACKET) {
 		dev->net->stats.rx_frame_errors++;
 		dbg("packet too big, %d", packet_len);
@@ -441,6 +434,12 @@ static int net1080_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 	} else if (hdr_len < MIN_HEADER) {
 		dev->net->stats.rx_frame_errors++;
 		dbg("header too short, %d", hdr_len);
+		nc_ensure_sync(dev);
+		return 0;
+	} else if (hdr_len > skb->len ||
+		   skb->len - hdr_len < packet_len +
+		   !(packet_len & 0x01) + sizeof(*trailer)) {
+		dev->net->stats.rx_frame_errors++;
 		nc_ensure_sync(dev);
 		return 0;
 	} else if (hdr_len > MIN_HEADER) {
@@ -453,6 +452,8 @@ static int net1080_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 
 	trailer = (struct nc_trailer *)
 		(skb->data + skb->len - sizeof *trailer);
+	trailer_id = get_unaligned_le16((u8 *)trailer +
+				       offsetof(struct nc_trailer, packet_id));
 	skb_trim(skb, skb->len - sizeof *trailer);
 
 	if ((packet_len & 0x01) == 0) {
@@ -470,11 +471,11 @@ static int net1080_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 		nc_ensure_sync(dev);
 		return 0;
 	}
-	if (header->packet_id != get_unaligned(&trailer->packet_id)) {
+	if (le16_to_cpu(header->packet_id) != trailer_id) {
 		dev->net->stats.rx_fifo_errors++;
 		dbg("(2+ dropped) rx packet_id mismatch 0x%x 0x%x",
 			le16_to_cpu(header->packet_id),
-			le16_to_cpu(trailer->packet_id));
+			trailer_id);
 		return 0;
 	}
 #if 0
@@ -537,7 +538,9 @@ encapsulate:
 	if (!((skb->len + sizeof *trailer) & 0x01))
 		*skb_put(skb, 1) = PAD_BYTE;
 	trailer = (struct nc_trailer *) skb_put(skb, sizeof *trailer);
-	put_unaligned(header->packet_id, &trailer->packet_id);
+	put_unaligned_le16(le16_to_cpu(header->packet_id),
+			   (u8 *)trailer +
+			   offsetof(struct nc_trailer, packet_id));
 #if 0
 	netdev_dbg(dev->net, "frame >tx h %d p %d id %d\n",
 		   header->hdr_len, header->packet_len,
