@@ -67,6 +67,7 @@ int board_get_usb_ats(void);
 #ifdef CONFIG_SND_PCM
 #include "f_audio_source.c"
 #endif
+#include "f_fs.c"
 #include "f_mass_storage.c"
 #include "u_serial.c"
 #include "u_sdio.c"
@@ -179,6 +180,7 @@ struct android_dev {
 
 	bool enabled;
 	int disable_depth;
+	int pullup_hold;
 	struct mutex mutex;
 	struct android_usb_platform_data *pdata;
 
@@ -189,6 +191,7 @@ struct android_dev {
 	char pm_qos[5];
 	struct pm_qos_request pm_qos_req_dma;
 	struct work_struct work;
+	char ffs_aliases[256];
 
 	
 	struct list_head configs;
@@ -473,7 +476,12 @@ static int android_enable(struct android_dev *dev)
 #ifdef CONFIG_HTC_USB_DEBUG_FLAG
 		dbg_event(0xFF,"ANDENA",0);
 #endif
-		usb_gadget_connect(cdev->gadget);
+		/*
+		 * A forced re-enumeration in progress reasserts the pullup
+		 * when its window closes, so the host sees one disconnect.
+		 */
+		if (!dev->pullup_hold)
+			usb_gadget_connect(cdev->gadget);
 #ifdef CONFIG_HTC_USB_DEBUG_FLAG
 		dbg_event(0xFF,"CONNEND",0);
 #endif
@@ -492,7 +500,9 @@ static void android_disable(struct android_dev *dev)
 #ifdef CONFIG_HTC_USB_DEBUG_FLAG
 		dbg_event(0xFF,"ANDDIS",0);
 #endif
-		usb_gadget_disconnect(cdev->gadget);
+		/* A forced re-enumeration in progress already dropped it */
+		if (!dev->pullup_hold)
+			usb_gadget_disconnect(cdev->gadget);
 #ifdef CONFIG_HTC_USB_DEBUG_FLAG
 		dbg_event(0xFF,"DISCEND",0);
 #endif
@@ -502,6 +512,49 @@ static void android_disable(struct android_dev *dev)
 		list_for_each_entry(conf, &dev->configs, list_item)
 			usb_remove_config(cdev, &conf->usb_config);
 	}
+}
+
+/*
+ * Force the host to re-enumerate: drop the pullup for hold_ms, then
+ * reassert it. composite_disconnect() hands FUNCTIONFS_DISABLE to adbd,
+ * which closes and reopens ep0 inside the window; the ffs closed and
+ * ready callbacks then move only disable_depth, the rebuilt
+ * configuration binds with the pullup off, and the host sees one
+ * disconnect of hold_ms. The pullup changes state only when
+ * disable_depth or pullup_hold crosses zero, so every
+ * usb_gadget_disconnect() pairs with one usb_gadget_connect().
+ */
+static void android_force_reenumerate(struct usb_composite_dev *cdev,
+				      unsigned int hold_ms)
+{
+	struct android_dev *dev = cdev_to_android_dev(cdev);
+
+	mutex_lock(&dev->mutex);
+	if (cdev->gadget->speed == USB_SPEED_UNKNOWN) {
+		mutex_unlock(&dev->mutex);
+		return;
+	}
+	if (dev->pullup_hold++ == 0 && dev->disable_depth == 0)
+		usb_gadget_disconnect(cdev->gadget);
+	composite_disconnect(cdev->gadget);
+	mutex_unlock(&dev->mutex);
+
+	msleep(hold_ms);
+
+	mutex_lock(&dev->mutex);
+	/*
+	 * usb_remove_config() inside the window resets os_type and the
+	 * mass-storage mode; the host on the other end has not changed,
+	 * and leaving os_type at OS_NOT_YET would make the next
+	 * GET_DESCRIPTOR(CONFIG) schedule this reset again.
+	 */
+	if (os_type == OS_NOT_YET) {
+		os_type = OS_LINUX;
+		fsg_update_mode(1);
+	}
+	if (--dev->pullup_hold == 0 && dev->disable_depth == 0)
+		usb_gadget_connect(cdev->gadget);
+	mutex_unlock(&dev->mutex);
 }
 
 
@@ -574,6 +627,194 @@ static ssize_t func_en_store(
 	return size;
 }
 static DEVICE_ATTR(on, S_IRUGO | S_IWUSR | S_IWGRP, func_en_show, func_en_store);
+
+struct functionfs_config {
+	bool opened;
+	bool enabled;
+	struct ffs_data *data;
+	struct android_dev *dev;
+};
+
+static int ffs_function_init(struct android_usb_function *f,
+			     struct usb_composite_dev *cdev)
+{
+	f->config = kzalloc(sizeof(struct functionfs_config), GFP_KERNEL);
+	if (!f->config)
+		return -ENOMEM;
+
+	return functionfs_init();
+}
+
+static void ffs_function_cleanup(struct android_usb_function *f)
+{
+	functionfs_cleanup();
+	kfree(f->config);
+}
+
+static void ffs_function_enable(struct android_usb_function *f)
+{
+	struct android_dev *dev = f->android_dev;
+	struct functionfs_config *config = f->config;
+
+	config->enabled = true;
+
+	/* Disable the gadget until the function is ready */
+	if (!config->opened)
+		android_disable(dev);
+}
+
+static void ffs_function_disable(struct android_usb_function *f)
+{
+	struct android_dev *dev = f->android_dev;
+	struct functionfs_config *config = f->config;
+
+	config->enabled = false;
+
+	/* Balance the disable that was called in closed_callback */
+	if (!config->opened)
+		android_enable(dev);
+}
+
+static int ffs_function_bind_config(struct android_usb_function *f,
+				    struct usb_configuration *c)
+{
+	struct functionfs_config *config = f->config;
+	return functionfs_bind_config(c->cdev, c, config->data);
+}
+
+static ssize_t
+ffs_aliases_show(struct device *pdev, struct device_attribute *attr, char *buf)
+{
+	struct android_dev *dev;
+	int ret;
+
+	dev = list_first_entry(&android_dev_list, struct android_dev,
+					list_item);
+
+	mutex_lock(&dev->mutex);
+	ret = sprintf(buf, "%s\n", dev->ffs_aliases);
+	mutex_unlock(&dev->mutex);
+
+	return ret;
+}
+
+static ssize_t
+ffs_aliases_store(struct device *pdev, struct device_attribute *attr,
+					const char *buf, size_t size)
+{
+	struct android_dev *dev;
+	char buff[256];
+
+	dev = list_first_entry(&android_dev_list, struct android_dev,
+					list_item);
+
+	mutex_lock(&dev->mutex);
+
+	if (dev->enabled) {
+		mutex_unlock(&dev->mutex);
+		return -EBUSY;
+	}
+
+	strlcpy(buff, buf, sizeof(buff));
+	strlcpy(dev->ffs_aliases, strim(buff), sizeof(dev->ffs_aliases));
+
+	mutex_unlock(&dev->mutex);
+
+	return size;
+}
+
+static DEVICE_ATTR(aliases, S_IRUGO | S_IWUSR, ffs_aliases_show,
+					       ffs_aliases_store);
+static struct device_attribute *ffs_function_attributes[] = {
+	&dev_attr_aliases,
+	NULL
+};
+
+static struct android_usb_function ffs_function = {
+	.name		= "ffs",
+	.init		= ffs_function_init,
+	.enable		= ffs_function_enable,
+	.disable	= ffs_function_disable,
+	.cleanup	= ffs_function_cleanup,
+	.bind_config	= ffs_function_bind_config,
+	.attributes	= ffs_function_attributes,
+};
+
+static int functionfs_ready_callback(struct ffs_data *ffs)
+{
+	struct android_dev *dev = ffs_function.android_dev;
+	struct functionfs_config *config = ffs_function.config;
+	int ret = 0;
+
+	/* dev is null in case ADB is not in the composition */
+	if (dev) {
+		mutex_lock(&dev->mutex);
+		ret = functionfs_bind(ffs, dev->cdev);
+		if (ret) {
+			mutex_unlock(&dev->mutex);
+			return ret;
+		}
+	} else {
+		/* android ffs_func requires daemon to start only after enable*/
+		pr_debug("start adbd only in ADB composition\n");
+		return -ENODEV;
+	}
+
+	config->data = ffs;
+	config->opened = true;
+	/* Save dev in case the adb function will get disabled */
+	config->dev = dev;
+
+	if (config->enabled)
+		android_enable(dev);
+
+	mutex_unlock(&dev->mutex);
+
+	return 0;
+
+}
+
+static void functionfs_closed_callback(struct ffs_data *ffs)
+{
+	struct android_dev *dev = ffs_function.android_dev;
+	struct functionfs_config *config = ffs_function.config;
+
+	/*
+	 * In case new composition is without ADB or ADB got disabled by the
+	 * time ffs_daemon was stopped then use saved one
+	 */
+	if (!dev)
+		dev = config->dev;
+
+	/* fatal-error: It should never happen */
+	if (!dev)
+		pr_err("adb_closed_callback: config->dev is NULL");
+
+	if (dev)
+		mutex_lock(&dev->mutex);
+
+	if (config->enabled && dev)
+		android_disable(dev);
+
+	config->dev = NULL;
+
+	config->opened = false;
+	config->data = NULL;
+
+	functionfs_unbind(ffs);
+
+	if (dev)
+		mutex_unlock(&dev->mutex);
+}
+
+static void *functionfs_acquire_dev_callback(const char *dev_name)
+{
+	return 0;
+}
+
+static void functionfs_release_dev_callback(struct ffs_data *ffs_data)
+{
+}
 
 struct adb_data {
 	bool opened;
@@ -2606,6 +2847,7 @@ struct android_usb_function projector2_function = {
 
 
 static struct android_usb_function *supported_functions[] = {
+	&ffs_function,
 	&rndis_function,
 	&rndis_qc_function,
 	&accessory_function,
@@ -2934,7 +3176,10 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 	struct android_usb_function_holder *f_holder;
 	char *name;
 	char buf[256], *b;
+	char aliases[256], *a;
 	int err;
+	int is_ffs;
+	int ffs_enabled = 0;
 
 	
 	strlcpy(buf, buff, sizeof(buf));
@@ -2982,12 +3227,38 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 
 		while (conf_str) {
 			name = strsep(&conf_str, ",");
-			if (name) {
-				err = android_enable_function(dev, conf, name);
-				if (err)
-					pr_err("android_usb: Cannot enable %s",
-						name);
+			if (!name)
+				continue;
+
+			is_ffs = 0;
+			strlcpy(aliases, dev->ffs_aliases, sizeof(aliases));
+			a = aliases;
+
+
+			while (a) {
+				char *alias = strsep(&a, ",");
+				if (alias && !strcmp(name, alias)) {
+					is_ffs = 1;
+					break;
+				}
 			}
+
+			if (is_ffs) {
+				if (ffs_enabled)
+					continue;
+				err = android_enable_function(dev, conf, "ffs");
+				if (err)
+					pr_err("android_usb: Cannot enable ffs (%d)",
+						err);
+				else
+					ffs_enabled = 1;
+				continue;
+			}
+
+			err = android_enable_function(dev, conf, name);
+			if (err)
+				pr_err("android_usb: Cannot enable '%s' (%d)",
+								   name, err);
 		}
 	}
 

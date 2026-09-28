@@ -104,7 +104,9 @@ static int usb_autobot_mode(void);
 static void mtp_update_mode(int _mac_mtp_mode);
 static void fsg_update_mode(int _linux_fsg_mode);
 static bool is_mtp_enable(void);
-void usb_composite_force_reset(struct usb_composite_dev *cdev);
+static void android_force_reenumerate(struct usb_composite_dev *cdev,
+				      unsigned int hold_ms);
+
 static void composite_request_reset(struct work_struct *w)
 {
 	struct usb_composite_dev *cdev = container_of(
@@ -121,8 +123,7 @@ static void composite_request_reset(struct work_struct *w)
 			fsg_update_mode(0);
 			return;
 		}
-		composite_disconnect(cdev->gadget);
-		usb_composite_force_reset(cdev);
+		android_force_reenumerate(cdev, 500);
 	}
 }
 
@@ -216,26 +217,20 @@ ep_found:
 	return 0;
 }
 
-
-void usb_composite_force_reset(struct usb_composite_dev *cdev)
-{
-	unsigned long			flags;
-
-	spin_lock_irqsave(&cdev->lock, flags);
-	
-	if (cdev && cdev->gadget && cdev->gadget->speed != USB_SPEED_UNKNOWN) {
-		spin_unlock_irqrestore(&cdev->lock, flags);
-
-		usb_gadget_disconnect(cdev->gadget);
-		msleep(500);
-		usb_gadget_connect(cdev->gadget);
-	} else {
-		spin_unlock_irqrestore(&cdev->lock, flags);
-	}
-}
-
-
-
+/**
+ * usb_add_function() - add a function to a configuration
+ * @config: the configuration
+ * @function: the function being added
+ * Context: single threaded during gadget setup
+ *
+ * After initialization, each configuration must have one or more
+ * functions added to it.  Adding a function involves calling its @bind()
+ * method to allocate resources such as interface and string identifiers
+ * and endpoints.
+ *
+ * This function returns the value of the function's bind(), which is
+ * zero for success else a negative errno value.
+ */
 int usb_add_function(struct usb_configuration *config,
 		struct usb_function *function)
 {
