@@ -1478,9 +1478,11 @@ static int __synaptics_init(struct psmouse *psmouse, bool absolute_mode)
 	 * the same rate as a standard PS/2 mouse).
 	 */
 	if (psmouse->rate >= 80 && impaired_toshiba_kbc) {
+		const char *product_name = dmi_get_system_info(DMI_PRODUCT_NAME);
+
 		psmouse_info(psmouse,
 			     "Toshiba %s detected, limiting rate to 40pps.\n",
-			     dmi_get_system_info(DMI_PRODUCT_NAME));
+			     product_name ? product_name : "unknown model");
 		psmouse->rate = 40;
 	}
 

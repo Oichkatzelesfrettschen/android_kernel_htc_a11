@@ -6707,13 +6707,13 @@ void himax_touch_information(void)
 		
 		himax_read_flash( temp_buffer, 0x3EE, 2);
 
-		if ((temp_buffer[0] && 0x04) == 0x04) {
+		if ((temp_buffer[0] & 0x04) == 0x04) {
 			HX_XY_REVERSE = true;
 		} else {
 			HX_XY_REVERSE = false;
 		}
 
-		if ((temp_buffer[1] && 0x01) == 1 ) {
+		if ((temp_buffer[1] & 0x01) == 1 ) {
 			HX_INT_IS_EDGE = true;
 		} else {
 			HX_INT_IS_EDGE = false;
