@@ -153,14 +153,14 @@
 #define QWLAN_MAX_MAC_LAST_BYTE_VALUE       0xFC
 #define NV_EMBEDDED_VERSION                 0x80
 
-typedef struct {
+typedef struct __attribute__((packed)) {
    tANI_U32 tableSize;                      /* Whole NV Table Size */
    tANI_U32 chunkSize;                      /* Current Chunk Size < 2K */
    eNvTable nvTable;
    tANI_U8  tableData;                     /* Filled by host driver */
 } pttGetNvTable;
 
-typedef struct {
+typedef struct __attribute__((packed)) {
    tANI_U32 tableSize;                      /* Whole NV Table Size */
    tANI_U32 chunkSize;                      /* Current Chunk Size < 2K */
    eNvTable nvTable;
@@ -2639,8 +2639,13 @@ int wlan_hdd_process_ftm_host_cmd
          break;
 
       case PTT_MSG_DBG_READ_REGISTER:
-         wpalReadRegister(pFTMCmd->msgBody.DbgReadRegister.regAddr,
-                          &pFTMCmd->msgBody.DbgReadRegister.regValue);
+         {
+            v_U32_t regValue = pFTMCmd->msgBody.DbgReadRegister.regValue;
+
+            wpalReadRegister(pFTMCmd->msgBody.DbgReadRegister.regAddr,
+                             &regValue);
+            pFTMCmd->msgBody.DbgReadRegister.regValue = regValue;
+         }
          needToRouteHal = 0;
          break;
 

@@ -2446,8 +2446,10 @@ static char *i_trim(char *str)
    if(*str == '\0') return str;
 
    /* Find the first non white-space*/
-   for (ptr = str; i_isspace(*ptr); ptr++);
-      if (*ptr == '\0')
+   ptr = str;
+   while (i_isspace(*ptr))
+      ptr++;
+   if (*ptr == '\0')
          return str;
 
    /* This is the new start of the string*/
@@ -2455,9 +2457,10 @@ static char *i_trim(char *str)
 
    /* Find the last non white-space */
    ptr += strlen(ptr) - 1;
-   for (; ptr != str && i_isspace(*ptr); ptr--);
-      /* Null terminate the following character */
-      ptr[1] = '\0';
+   while (ptr != str && i_isspace(*ptr))
+      ptr--;
+   /* Null terminate the following character */
+   ptr[1] = '\0';
 
    return str;
 }
@@ -3321,6 +3324,8 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
 
    hdd_config_t *pConfig = pHddCtx->cfg_ini;
    tSirMacHTCapabilityInfo htCapInfo;
+   tANI_U16 htCapInfoBits;
+   tANI_U32 htCapInfoValue = 0;
 
 
    if (ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_SHORT_GI_20MHZ,
@@ -3589,6 +3594,10 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
 
     if (ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_MCAST_BCAST_FILTER_SETTING, pConfig->mcastBcastFilterSetting,
                      NULL, eANI_BOOLEAN_FALSE)==eHAL_STATUS_FAILURE)
+    {
+       fStatus = FALSE;
+       hddLog(LOGE,"Failure: Could not pass on WNI_CFG_MCAST_BCAST_FILTER_SETTING to CCM\n");
+    }
 #endif
 
      if (ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_SINGLE_TID_RC, pConfig->bSingleTidRc,
@@ -3792,11 +3801,15 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
          hddLog(LOGE, "Could not pass on WNI_CFG_HT_RX_STBC to CCM\n");
      }
 
-     ccmCfgGetInt(pHddCtx->hHal, WNI_CFG_HT_CAP_INFO, (tANI_U32 *)&htCapInfo);
+     ccmCfgGetInt(pHddCtx->hHal, WNI_CFG_HT_CAP_INFO, &htCapInfoValue);
+     htCapInfoBits = (tANI_U16)htCapInfoValue;
+     memcpy(&htCapInfo, &htCapInfoBits, sizeof(htCapInfo));
      htCapInfo.rxSTBC = pConfig->enableRxSTBC;
+     memcpy(&htCapInfoBits, &htCapInfo, sizeof(htCapInfo));
+     htCapInfoValue = (htCapInfoValue & 0xffff0000U) | htCapInfoBits;
 
      if(ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_HT_CAP_INFO,
-                     *(tANI_U32 *)&htCapInfo, NULL, eANI_BOOLEAN_FALSE)
+                     htCapInfoValue, NULL, eANI_BOOLEAN_FALSE)
          ==eHAL_STATUS_FAILURE)
      {
          fStatus = FALSE;

@@ -877,7 +877,8 @@ WLANBAP_STARxCB
     vosStatus = vos_pkt_extract_data( vosDataBuff, sizeof(w8023Header), (v_VOID_t *)aucLLCHeader,
                                    &llcHeaderLen);
 
-    if ( NULL == aucLLCHeader/*LLC Header*/ )
+    if (vosStatus != VOS_STATUS_SUCCESS ||
+        llcHeaderLen < WLANBAP_LLC_HEADER_LEN)
     {
         VOS_TRACE( VOS_MODULE_ID_TL, VOS_TRACE_LEVEL_ERROR,
                  "WLANBAP_STARxCB:Cannot extract LLC header");
@@ -1286,5 +1287,4 @@ WLAN_BAPRegisterBAPCallbacks
 
     return VOS_STATUS_SUCCESS;
 } /* WLAN_BAPRegisterBAPCallbacks */
-
 
