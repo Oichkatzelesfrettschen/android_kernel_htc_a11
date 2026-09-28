@@ -757,7 +757,7 @@ void init_mfg_serialno(void)
 	char *serialno = "000000000000";
 
 	use_mfg_serialno = (board_mfg_mode() == 1) ? 1 : 0;
-	strncpy(mfg_df_serialno, serialno, strlen(serialno));
+	strlcpy(mfg_df_serialno, serialno, sizeof(mfg_df_serialno));
 }
 static int usb_disable;
 static ssize_t show_usb_cable_connect(struct device *dev,
@@ -834,12 +834,13 @@ static ssize_t store_usb_serial_number(struct device *dev,
 	if (buf[0] == '0' || buf[0] == '1') {
 		memset(mfg_df_serialno, 0x0, sizeof(mfg_df_serialno));
 		if (buf[0] == '0') {
-			strncpy(mfg_df_serialno, serialno, strlen(serialno));
+			strlcpy(mfg_df_serialno, serialno,
+				sizeof(mfg_df_serialno));
 			use_mfg_serialno = 1;
 			android_set_serialno(mfg_df_serialno);
 		} else if (pdata) {
-			strncpy(mfg_df_serialno, pdata->serial_number,
-					strlen(pdata->serial_number));
+			strlcpy(mfg_df_serialno, pdata->serial_number,
+				sizeof(mfg_df_serialno));
 			use_mfg_serialno = 0;
 			android_set_serialno(pdata->serial_number);
 		} else {
@@ -1241,4 +1242,3 @@ static void setup_vendor_info(struct android_dev *dev) {
 	android_enable(dev);
 	dev->enabled = true;
 }
-

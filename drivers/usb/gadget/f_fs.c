@@ -1419,6 +1419,8 @@ static int ffs_epfiles_create(struct ffs_data *ffs)
 	ENTER();
 
 	count = ffs->eps_count;
+	if (count > USB_ENDPOINT_NUMBER_MASK)
+		return -EINVAL;
 	epfiles = kcalloc(count, sizeof(*epfiles), GFP_KERNEL);
 	if (!epfiles)
 		return -ENOMEM;
@@ -1428,8 +1430,8 @@ static int ffs_epfiles_create(struct ffs_data *ffs)
 		epfile->ffs = ffs;
 		mutex_init(&epfile->mutex);
 		init_waitqueue_head(&epfile->wait);
-		sprintf(epfiles->name, "ep%u",  i);
-		if (!unlikely(ffs_sb_create_file(ffs->sb, epfiles->name, epfile,
+		scnprintf(epfile->name, sizeof(epfile->name), "ep%u", i);
+		if (!unlikely(ffs_sb_create_file(ffs->sb, epfile->name, epfile,
 						 &ffs_epfile_operations,
 						 &epfile->dentry))) {
 			ffs_epfiles_destroy(epfiles, i - 1);
