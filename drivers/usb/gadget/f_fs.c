@@ -856,7 +856,6 @@ static ssize_t ffs_epfile_io(struct file *file, struct ffs_io_data *io_data)
 {
 	struct ffs_epfile *epfile = file->private_data;
 	struct ffs_ep *ep;
-	struct ffs_data *ffs = epfile->ffs;
 	char *data = NULL;
 	ssize_t ret;
 	int halt;
@@ -964,7 +963,6 @@ first_try:
 		ret = -EBADMSG;
 	} else {
 		/* Fire the request */
-		struct completion *done;
 
 		struct usb_request *req;
  		if (io_data->aio) {
@@ -2425,7 +2423,7 @@ static int __ffs_func_bind_do_descs(enum ffs_entity_type type, u8 *valuep,
 		func->function.hs_descriptors[(long)valuep] = desc;
 		ep_desc_id = 1;
 	} else {
-		func->function.fs_descriptors[(long)valuep]    = desc;
+		func->function.descriptors[(long)valuep]    = desc;
 		ep_desc_id = 0;
 	}
 
@@ -2590,7 +2588,7 @@ static int ffs_func_bind(struct usb_configuration *c,
 	 * numbers without worrying that it may be described later on.
 	 */
 	if (likely(full)) {
-		func->function.fs_descriptors = data->fs_descs;
+		func->function.descriptors = data->fs_descs;
 		fs_len = ffs_do_descs(ffs->fs_descs_count,
 				   data->raw_descs,
 				   sizeof(data->raw_descs),
