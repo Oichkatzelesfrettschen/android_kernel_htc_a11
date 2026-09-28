@@ -86,8 +86,12 @@ int diag_process_smd_dci_read_data(struct diag_smd_info *smd_info, void *buf,
 	
 	read_bytes = 0;
 	while (read_bytes < recd_bytes) {
+		if (recd_bytes - read_bytes < 5)
+			break;
 		
 		dci_pkt_len = *(uint16_t *)(buf+2);
+		if (dci_pkt_len > recd_bytes - read_bytes - 5)
+			break;
 		
 		pr_debug("diag: bytes read = %d, single dci pkt len = %d\n",
 			read_bytes, dci_pkt_len);
@@ -95,7 +99,7 @@ int diag_process_smd_dci_read_data(struct diag_smd_info *smd_info, void *buf,
 		if (recv_pkt_cmd_code == LOG_CMD_CODE)
 			extract_dci_log(buf+4);
 		else if (recv_pkt_cmd_code == EVENT_CMD_CODE)
-			extract_dci_events(buf+4);
+			extract_dci_events(buf+4, dci_pkt_len + 1);
 		else
 			extract_dci_pkt_rsp(smd_info, buf); 
 		read_bytes += 5 + dci_pkt_len;
@@ -256,51 +260,64 @@ void extract_dci_pkt_rsp(struct diag_smd_info *smd_info, unsigned char *buf)
 	}
 }
 
-void extract_dci_events(unsigned char *buf)
+void extract_dci_events(unsigned char *buf, int len)
 {
-	uint16_t event_id, event_id_packet, length, temp_len;
+	uint16_t event_id, event_id_packet, length;
+	int temp_len, event_size;
 	uint8_t *event_mask_ptr, byte_mask, payload_len_field;
 	unsigned int payload_len;
-	uint8_t timestamp[8], bit_index, timestamp_len;
+	uint8_t timestamp[8] = { 0 }, bit_index, timestamp_len;
 	uint8_t event_data[MAX_EVENT_SIZE];
 	unsigned int byte_index, total_event_len, i;
 	struct diag_dci_client_tbl *entry;
 
+	/* A one-byte payload length caps an event at 13 + 0xff bytes. */
+	BUILD_BUG_ON(MAX_EVENT_SIZE < 13 + 0xff);
+	if (!buf || len < 3)
+		return;
+
 	length =  *(uint16_t *)(buf + 1); 
-	if (length == 0) {
+	if (length == 0 || length + 3 > len) {
 		pr_err("diag: Incoming dci event length is invalid\n");
 		return;
 	}
 	temp_len = 0;
 	buf = buf + 3; 
 	while (temp_len < (length - 1)) {
+		if (length - temp_len < 2)
+			return;
 		event_id_packet = *(uint16_t *)(buf + temp_len);
 		event_id = event_id_packet & 0x0FFF; 
 		if (event_id_packet & 0x8000) {
 			timestamp_len = 2;
 		} else {
 			timestamp_len = 8;
+			if (length - temp_len < 2 + timestamp_len)
+				return;
 			memcpy(timestamp, buf + temp_len + 2, timestamp_len);
 		}
+		if (length - temp_len < 2 + timestamp_len)
+			return;
 		
 		if (((event_id_packet & 0x6000) >> 13) == 3) {
 			payload_len_field = 1;
+			if (length - temp_len < 2 + timestamp_len + 1)
+				return;
 			payload_len = *(uint8_t *)
 					(buf + temp_len + 2 + timestamp_len);
-			if (payload_len < (MAX_EVENT_SIZE - 13)) {
-				
-				memcpy(event_data + 12, buf + temp_len + 2 +
-							timestamp_len, 1);
-				memcpy(event_data + 13, buf + temp_len + 2 +
-					timestamp_len + 1, payload_len);
-			} else {
-				pr_err("diag: event > %d, payload_len = %d\n",
-					(MAX_EVENT_SIZE - 13), payload_len);
+			event_size = 2 + timestamp_len + 1 + payload_len;
+			if (event_size > length - temp_len)
 				return;
-			}
+			memcpy(event_data + 12, buf + temp_len + 2 +
+						timestamp_len, 1);
+			memcpy(event_data + 13, buf + temp_len + 2 +
+					timestamp_len + 1, payload_len);
 		} else {
 			payload_len_field = 0;
 			payload_len = (event_id_packet & 0x6000) >> 13;
+			event_size = 2 + timestamp_len + payload_len;
+			if (event_size > length - temp_len)
+				return;
 			
 			memcpy(event_data + 12, buf + temp_len + 2 +
 						timestamp_len, payload_len);
@@ -348,7 +365,7 @@ void extract_dci_events(unsigned char *buf)
 				mutex_unlock(&dci_health_mutex);
 			}
 		}
-		temp_len += 2 + timestamp_len + payload_len_field + payload_len;
+		temp_len += event_size;
 	}
 }
 
