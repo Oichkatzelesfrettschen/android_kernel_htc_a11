@@ -2787,14 +2787,12 @@ static char *fmt_single_name(struct device *dev, int *id)
 	} else {
 		
 		if (sscanf(name, "%x-%x", &id1, &id2) == 2) {
-			char tmp[NAME_SIZE];
-
 			
 			*id = ((id1 & 0xffff) << 16) + id2;
 
 			
-			snprintf(tmp, NAME_SIZE, "%s.%s", dev->driver->name, name);
-			strlcpy(name, tmp, NAME_SIZE);
+			return kasprintf(GFP_KERNEL, "%s.%s", dev->driver->name,
+					 name);
 		} else
 			*id = 0;
 	}
@@ -2874,7 +2872,7 @@ int snd_soc_register_dais(struct device *dev,
 	struct snd_soc_dai *dai;
 	int i, ret = 0;
 
-	dev_dbg(dev, "dai register %s #%Zu\n", dev_name(dev), count);
+	dev_dbg(dev, "dai register %s #%zu\n", dev_name(dev), count);
 
 	for (i = 0; i < count; i++) {
 

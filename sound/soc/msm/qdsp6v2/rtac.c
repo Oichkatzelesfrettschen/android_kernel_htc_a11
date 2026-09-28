@@ -1029,6 +1029,7 @@ bool rtac_make_asm_callback(u32 session_id, uint32_t *payload,
 u32 send_rtac_asm_apr(void *buf, u32 opcode)
 {
 	s32	result;
+	int service_id;
 	u32	user_buf_size = 0;
 	u32	bytes_returned = 0;
 	u32	session_id = 0;
@@ -1133,11 +1134,12 @@ u32 send_rtac_asm_apr(void *buf, u32 opcode)
 		APR_HDR_LEN(20), APR_PKT_VER);
 	asm_params.pkt_size = APR_PKT_SIZE(APR_HDR_SIZE,
 		payload_size);
-	asm_params.src_svc = q6asm_get_apr_service_id(session_id);
-	if (asm_params.src_svc == -EINVAL) {
+	service_id = q6asm_get_apr_service_id(session_id);
+	if (service_id < 0) {
 		pr_err("%s: Could not get service id form session %d", __func__, session_id);
 		goto err;
 	}
+	asm_params.src_svc = service_id;
 
 	asm_params.src_domain = APR_DOMAIN_APPS;
 	asm_params.src_port = (session_id << 8) | 0x0001;

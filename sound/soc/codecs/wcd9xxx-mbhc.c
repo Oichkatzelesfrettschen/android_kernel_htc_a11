@@ -434,7 +434,7 @@ static s16 wcd9xxx_get_current_v(struct wcd9xxx_mbhc *mbhc,
 }
 
 void *wcd9xxx_mbhc_cal_btn_det_mp(
-			    const struct wcd9xxx_mbhc_btn_detect_cfg *btn_det,
+			    struct wcd9xxx_mbhc_btn_detect_cfg *btn_det,
 			    const enum wcd9xxx_mbhc_btn_det_mem mem)
 {
 	void *ret = &btn_det->_v_btn_low;
@@ -2678,7 +2678,7 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 		if ((mbhc->current_plug == PLUG_TYPE_HEADPHONE &&
 		    wrk_complete) ||
 		    mbhc->current_plug == PLUG_TYPE_GND_MIC_SWAP ||
-		    mbhc->current_plug == PLUG_TYPE_INVALID ||
+		    mbhc->current_plug == (u8)PLUG_TYPE_INVALID ||
 		    (plug_type == PLUG_TYPE_INVALID && wrk_complete)) {
 			
 			wcd9xxx_cleanup_hs_polling(mbhc);
@@ -2816,7 +2816,7 @@ static int wcd9xxx_is_false_press(struct wcd9xxx_mbhc *mbhc)
 	    wcd9xxx_get_current_v(mbhc, WCD9XXX_CURRENT_V_B1_HU);
 	const s16 v_b1_h =
 	    wcd9xxx_get_current_v(mbhc, WCD9XXX_CURRENT_V_B1_H);
-	const unsigned long timeout =
+	unsigned long timeout =
 	    jiffies + msecs_to_jiffies(BTN_RELEASE_DEBOUNCE_TIME_MS);
 
 	while (time_before(jiffies, timeout)) {

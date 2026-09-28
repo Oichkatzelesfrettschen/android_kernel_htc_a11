@@ -183,7 +183,6 @@ static const DECLARE_TLV_DB_SCALE(digital_gain, 0, 1, 0);
 static const DECLARE_TLV_DB_SCALE(line_gain, 0, 7, 1);
 static const DECLARE_TLV_DB_SCALE(analog_gain, 0, 25, 1);
 static struct snd_soc_dai_driver tapan_dai[];
-static const DECLARE_TLV_DB_SCALE(aux_pga_gain, 0, 2, 0);
 
 enum {
 	IIR1 = 0,
@@ -5177,6 +5176,7 @@ static void tapan_cleanup_irqs(struct tapan_priv *tapan)
 }
 
 
+#if 0
 static void tapan_enable_mux_bias_block(struct snd_soc_codec *codec)
 {
 	snd_soc_update_bits(codec, WCD9XXX_A_MBHC_SCALING_MUX_1,
@@ -5463,6 +5463,7 @@ static const struct wcd9xxx_mbhc_cb mbhc_cb = {
 	.setup_zdet = tapan_setup_zdet,
 	.compute_impedance = tapan_compute_impedance,
 };
+#endif
 
 int tapan_hs_detect(struct snd_soc_codec *codec,
 		    struct wcd9xxx_mbhc_config *mbhc_cfg)
@@ -5499,6 +5500,7 @@ static int tapan_device_down(struct wcd9xxx *wcd9xxx)
 	return 0;
 }
 
+#if 0
 static const struct wcd9xxx_mbhc_intr cdc_intr_ids = {
 	.poll_plug_rem = WCD9XXX_IRQ_MBHC_REMOVAL,
 	.shortavg_complete = WCD9XXX_IRQ_MBHC_SHORT_TERM,
@@ -5510,6 +5512,7 @@ static const struct wcd9xxx_mbhc_intr cdc_intr_ids = {
 	.hph_right_ocp = WCD9306_IRQ_HPH_PA_OCPR_FAULT,
 	.hs_jack_switch = WCD9306_IRQ_MBHC_JACK_SWITCH,
 };
+#endif
 
 static int tapan_post_reset_cb(struct wcd9xxx *wcd9xxx)
 {
@@ -5665,19 +5668,20 @@ static void tapan_enable_config_rco(struct wcd9xxx *core, bool enable)
 
 }
 
-static bool tapan_check_wcd9306(struct device *cdc_dev, bool sensed)
+static int tapan_check_wcd9306(struct device *cdc_dev, bool sensed)
 {
 	struct wcd9xxx *core = dev_get_drvdata(cdc_dev->parent);
+	struct wcd9xxx_core_resource *core_res;
 	u8 reg_val;
-	bool ret = true;
+	int ret = 1;
 	unsigned long timeout;
 	bool timedout;
-	struct wcd9xxx_core_resource *core_res = &core->core_res;
 
 	if (!core) {
 		dev_err(cdc_dev, "%s: core not initialized\n", __func__);
 		return -EINVAL;
 	}
+	core_res = &core->core_res;
 
 	tapan_enable_config_rco(core, 1);
 
@@ -5973,14 +5977,16 @@ static const struct dev_pm_ops tapan_pm_ops = {
 static int __devinit tapan_probe(struct platform_device *pdev)
 {
 	int ret = 0;
+	int codec_variant;
 	bool is_wcd9306;
 
-	is_wcd9306 = tapan_check_wcd9306(&pdev->dev, false);
-	if (is_wcd9306 < 0) {
+	codec_variant = tapan_check_wcd9306(&pdev->dev, false);
+	if (codec_variant < 0) {
 		dev_info(&pdev->dev, "%s: cannot find codec type, default to 9306\n",
 			 __func__);
-		is_wcd9306 = true;
+		codec_variant = 1;
 	}
+	is_wcd9306 = codec_variant > 0;
 	codec_ver = is_wcd9306 ? WCD9306 : WCD9302;
 
 	if (!is_wcd9306) {
