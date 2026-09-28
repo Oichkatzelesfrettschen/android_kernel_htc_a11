@@ -73,7 +73,7 @@ extern struct devtable *__start___devtable[], *__stop___devtable[];
 
 #define ADD_TO_DEVTABLE(device_id, type, function) \
 	static struct devtable __cat(devtable,__LINE__) = {	\
-		device_id + 0*sizeof((function)((const char *)NULL,	\
+		((const char *)device_id) + 0*sizeof((function)((const char *)NULL,	\
 						(type *)NULL,		\
 						(char *)NULL)),		\
 		sizeof(type), (function) };				\
