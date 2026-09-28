@@ -419,7 +419,7 @@ static int net1080_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 	struct nc_trailer	*trailer;
 	u16			hdr_len, packet_len;
 
-	if (!(skb->len & 0x01)) {
+	if (skb->len < MIN_FRAMED || !(skb->len & 0x01)) {
 #ifdef DEBUG
 		struct net_device	*net = dev->net;
 		dbg("rx framesize %d range %d..%d mtu %d", skb->len,
@@ -441,6 +441,12 @@ static int net1080_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 	} else if (hdr_len < MIN_HEADER) {
 		dev->net->stats.rx_frame_errors++;
 		dbg("header too short, %d", hdr_len);
+		nc_ensure_sync(dev);
+		return 0;
+	} else if (hdr_len > skb->len ||
+		   skb->len - hdr_len < packet_len +
+		   !(packet_len & 0x01) + sizeof(*trailer)) {
+		dev->net->stats.rx_frame_errors++;
 		nc_ensure_sync(dev);
 		return 0;
 	} else if (hdr_len > MIN_HEADER) {
