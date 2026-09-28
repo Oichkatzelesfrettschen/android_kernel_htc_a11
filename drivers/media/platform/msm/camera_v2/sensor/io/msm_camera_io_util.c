@@ -562,6 +562,7 @@ int msm_camera_request_gpio_table(struct gpio *gpio_tbl, uint8_t size,
 	}
 	if (gpio_en) {
 		for (i = 0; i < size; i++) {
+			err = 0;
 		 
 		if(gpio_tbl[i].gpio ==  558)
 		{
@@ -603,15 +604,15 @@ int msm_camera_request_gpio_table(struct gpio *gpio_tbl, uint8_t size,
 		    else
 		        pr_info("%s:%d already request gpio_429_index:%d\n", __func__, __LINE__, gpio_429_index);
 		}
-		else
-		
+		else {
 			err = gpio_request_one(gpio_tbl[i].gpio,
 				gpio_tbl[i].flags, gpio_tbl[i].label);
-			if (err) {
-				pr_err("%s:%d gpio %d:%s request fails\n",
-					__func__, __LINE__,
-					gpio_tbl[i].gpio, gpio_tbl[i].label);
-			}
+		}
+		if (err) {
+			pr_err("%s:%d gpio %d:%s request fails\n",
+				__func__, __LINE__,
+				gpio_tbl[i].gpio, gpio_tbl[i].label);
+		}
 		}
 	} else {
 	    #if 1 

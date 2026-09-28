@@ -1588,10 +1588,9 @@ int32_t msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 			}
 			else {
 			    printk("%s: cam_vdig_count %d \n", __func__, cam_vdig_count);
-			    if(strcmp(cam_vreg->reg_name, "cam_vdig") == 0) {
-                            if(cam_vdig_count == 0 || --cam_vdig_count > 0 );
+			    if(strcmp(cam_vreg->reg_name, "cam_vdig") == 0 &&
+			       (cam_vdig_count == 0 || --cam_vdig_count > 0))
 				    break;
-			    }
 				msm_camera_config_single_vreg(s_ctrl->dev,
 					cam_vreg,
 					(struct regulator **)&power_setting->data[0],
@@ -2589,4 +2588,3 @@ void msm_dump_otp_to_file(const char* sensor_name, const short* add, const uint8
         pr_err ("%s: fail to open file\n", __func__);
     }
 }
-

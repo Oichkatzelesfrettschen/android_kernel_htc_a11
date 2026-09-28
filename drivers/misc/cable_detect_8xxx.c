@@ -311,12 +311,15 @@ static void check_vbus_in(struct work_struct *w)
 
 		if (pInfo->ad_en_gpio) {
 			if (vbus) {
-				if (pInfo->ad_en_irq)
+				if (pInfo->ad_en_irq) {
 					CABLE_INFO("%s: Enable ad_en_irq ++\n", __func__);
 					enable_irq(pInfo->ad_en_irq);
+				}
 			} else {
+				if (pInfo->ad_en_irq) {
 					CABLE_INFO("%s: Disable ad_en_irq --\n", __func__);
 					disable_irq_nosync(pInfo->ad_en_irq);
+				}
 			}
 		}
 	}
@@ -929,7 +932,7 @@ static irqreturn_t ad_en_irq_handler(int irq, void *data)
 	unsigned long flags;
 	struct cable_detect_info *pInfo = &the_cable_info;
 
-	disable_irq_nosync(pInfo->ad_en_irq);
+	disable_irq_nosync(irq);
 	CABLE_INFO("%s: Disable ad_en_irq --\n", __func__);
 	spin_lock_irqsave(&pInfo->lock, flags);
 	queue_delayed_work(pInfo->cable_detect_wq,
@@ -997,7 +1000,6 @@ static int cable_detect_probe(struct platform_device *pdev)
 		pInfo->vbus_mpp_irq = pdata->vbus_mpp_irq;
 		pInfo->ad_en_active_state = pdata->ad_en_active_state;
 		pInfo->ad_en_gpio = pdata->ad_en_gpio;
-		pInfo->ad_en_irq = pdata->ad_en_irq;
 		pInfo->usb_uart_switch = pdata->usb_uart_switch;
 		pInfo->usb_dpdn_switch = pdata->usb_dpdn_switch;
 		if (pInfo->usb_dpdn_switch)
@@ -1063,8 +1065,10 @@ static int cable_detect_probe(struct platform_device *pdev)
 					"ad_en_irq", 1);
 			if (ret < 0) {
 				printk("Failed to request PMIC AD_EN IRQ (0x%X)", ret);
-			} else
+			} else {
+				pInfo->ad_en_irq = pdata->ad_en_irq;
 				disable_irq(pdata->ad_en_irq);
+			}
 		}
 	}
 	if (switch_dev_register(&dock_switch) < 0) {
