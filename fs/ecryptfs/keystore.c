@@ -109,6 +109,7 @@ out:
 	return rc;
 }
 
+
 /**
  * ecryptfs_write_packet_length
  * @dest: The byte array target into which to write the length. Must
@@ -1004,6 +1005,7 @@ decrypt_pki_encrypted_session_key(struct ecryptfs_auth_tok *auth_tok,
 	u8 cipher_code = 0;
 	struct ecryptfs_msg_ctx *msg_ctx;
 	struct ecryptfs_message *msg = NULL;
+	struct ecryptfs_session_key session_key;
 	char *auth_tok_sig;
 	char *payload;
 	size_t payload_len = 0;
@@ -1015,7 +1017,8 @@ decrypt_pki_encrypted_session_key(struct ecryptfs_auth_tok *auth_tok,
 		       auth_tok->token_type);
 		goto out;
 	}
-	rc = write_tag_64_packet(auth_tok_sig, &(auth_tok->session_key),
+	memcpy(&session_key, &auth_tok->session_key, sizeof(session_key));
+	rc = write_tag_64_packet(auth_tok_sig, &session_key,
 				 &payload, &payload_len);
 	if (rc) {
 		ecryptfs_printk(KERN_ERR, "Failed to write tag 64 packet\n");
@@ -1034,8 +1037,8 @@ decrypt_pki_encrypted_session_key(struct ecryptfs_auth_tok *auth_tok,
 		rc = -EIO;
 		goto out;
 	}
-	rc = parse_tag_65_packet(&(auth_tok->session_key),
-				 &cipher_code, msg);
+	rc = parse_tag_65_packet(&session_key, &cipher_code, msg);
+	memcpy(&auth_tok->session_key, &session_key, sizeof(session_key));
 	if (rc) {
 		printk(KERN_ERR "Failed to parse tag 65 packet; rc = [%d]\n",
 		       rc);
