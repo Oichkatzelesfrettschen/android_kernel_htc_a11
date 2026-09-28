@@ -168,15 +168,17 @@ kgsl_get_mem_entry(struct kgsl_device *device,
 }
 EXPORT_SYMBOL(kgsl_get_mem_entry);
 
-static inline struct kgsl_mem_entry *
+static struct kgsl_mem_entry *
 kgsl_mem_entry_create(void)
 {
 	struct kgsl_mem_entry *entry = kzalloc(sizeof(*entry), GFP_KERNEL);
 
-	if (!entry)
-		KGSL_CORE_ERR("kzalloc(%d) failed\n", sizeof(*entry));
-	else
-		kref_init(&entry->refcount);
+	if (!entry) {
+		KGSL_CORE_ERR("kzalloc(%zu) failed\n", sizeof(*entry));
+		return NULL;
+	}
+
+	kref_init(&entry->refcount);
 
 	return entry;
 }
@@ -2659,10 +2661,10 @@ _gpumem_alloc(struct kgsl_device_private *dev_priv,
 	}
 
 	entry = kgsl_mem_entry_create();
-	memdesc = &entry->memdesc;
-
 	if (entry == NULL)
 		return -ENOMEM;
+
+	memdesc = &entry->memdesc;
 
 	if (kgsl_mmu_get_mmutype() == KGSL_MMU_TYPE_IOMMU)
 		entry->memdesc.priv |= KGSL_MEMDESC_GUARD_PAGE;

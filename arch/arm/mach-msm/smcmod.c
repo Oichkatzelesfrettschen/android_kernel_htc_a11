@@ -97,6 +97,7 @@ static int smcmod_ion_fd_to_phys(int32_t fd, struct ion_client *ion_clientp,
 	struct ion_handle **ion_handlep, uint32_t *phys_addrp, size_t *sizep)
 {
 	int ret = 0;
+	ion_phys_addr_t phys_addr;
 
 	/* sanity check args */
 	if ((fd < 0) || IS_ERR_OR_NULL(ion_clientp) ||
@@ -112,8 +113,9 @@ static int smcmod_ion_fd_to_phys(int32_t fd, struct ion_client *ion_clientp,
 		return -EINVAL;
 
 	/* get the physical address */
-	ret = ion_phys(ion_clientp, *ion_handlep, (ion_phys_addr_t *)phys_addrp,
-		sizep);
+	ret = ion_phys(ion_clientp, *ion_handlep, &phys_addr, sizep);
+	if (!ret)
+		*phys_addrp = phys_addr;
 
 	return ret;
 }
@@ -397,6 +399,7 @@ buf_cleanup:
 static int smcmod_send_msg_digest_cmd(struct smcmod_msg_digest_req *reqp)
 {
 	int ret = 0;
+	uint32_t phys_addr;
 	struct smcmod_msg_digest_scm_req scm_req;
 	struct ion_client *ion_clientp = NULL;
 	struct ion_handle *ion_key_handlep = NULL;
@@ -429,9 +432,10 @@ static int smcmod_send_msg_digest_cmd(struct smcmod_msg_digest_req *reqp)
 	if (!reqp->key_is_null) {
 		/* import the key buffer and get the physical address */
 		ret = smcmod_ion_fd_to_phys(reqp->ion_key_fd, ion_clientp,
-			&ion_key_handlep, &scm_req.key_phys_addr, &size);
+			&ion_key_handlep, &phys_addr, &size);
 		if (ret < 0)
 			goto buf_cleanup;
+		scm_req.key_phys_addr = phys_addr;
 
 		/* ensure that the key size is not
 		 * greater than the size of the buffer.
@@ -444,9 +448,10 @@ static int smcmod_send_msg_digest_cmd(struct smcmod_msg_digest_req *reqp)
 
 	/* import the input buffer and get the physical address */
 	ret = smcmod_ion_fd_to_phys(reqp->ion_input_fd, ion_clientp,
-		&ion_input_handlep, &scm_req.input_phys_addr, &size);
+		&ion_input_handlep, &phys_addr, &size);
 	if (ret < 0)
 		goto buf_cleanup;
+	scm_req.input_phys_addr = phys_addr;
 
 	/* ensure that the input size is not
 	 * greater than the size of the buffer.
@@ -458,9 +463,10 @@ static int smcmod_send_msg_digest_cmd(struct smcmod_msg_digest_req *reqp)
 
 	/* import the output buffer and get the physical address */
 	ret = smcmod_ion_fd_to_phys(reqp->ion_output_fd, ion_clientp,
-		&ion_output_handlep, &scm_req.output_phys_addr, &size);
+		&ion_output_handlep, &phys_addr, &size);
 	if (ret < 0)
 		goto buf_cleanup;
+	scm_req.output_phys_addr = phys_addr;
 
 	/* ensure that the output size is not
 	 * greater than the size of the buffer.

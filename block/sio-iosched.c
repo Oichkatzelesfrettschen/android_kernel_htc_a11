@@ -260,6 +260,8 @@ sio_init_queue(struct request_queue *q)
 
 	/* Initialize data */
 	sd->batched = 0;
+	sd->starved = 0;
+	sd->writes_starved = writes_starved;
 	sd->fifo_expire[SYNC][READ] = sync_read_expire;
 	sd->fifo_expire[SYNC][WRITE] = sync_write_expire;
 	sd->fifo_expire[ASYNC][READ] = async_read_expire;

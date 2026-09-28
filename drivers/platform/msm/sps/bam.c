@@ -1829,7 +1829,7 @@ void print_bam_pipe_desc_fifo(void *virt_addr, u32 pipe_index, u32 option)
 				offset += scnprintf(desc_info + offset, 5,
 							"IMM ");
 
-			SPS_INFO("%s\n", desc_info);
+			SPS_INFO("%.*s\n", MAX_MSG_LEN - 3, desc_info);
 		}
 
 		SPS_INFO("\n------------  end of partial FIFO  ------------\n");
