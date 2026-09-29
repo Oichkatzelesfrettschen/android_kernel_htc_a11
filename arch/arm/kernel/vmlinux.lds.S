@@ -58,20 +58,14 @@ SECTIONS
 	 * matching the same input section name.  There is no documented
 	 * order of matching.
 	 *
-	 * unwind exit sections must be discarded before the rest of the
-	 * unwind sections get included.
+	 * Keep unwind input sections for the ARM EXIDX output below.  The
+	 * retained .exit.text section contains functions that need unwind data.
 	 */
 	/DISCARD/ : {
-		*(.ARM.exidx.exit.text)
-		*(.ARM.extab.exit.text)
-		ARM_CPU_DISCARD(*(.ARM.exidx.cpuexit.text))
-		ARM_CPU_DISCARD(*(.ARM.extab.cpuexit.text))
 		ARM_EXIT_DISCARD(EXIT_TEXT)
 		ARM_EXIT_DISCARD(EXIT_DATA)
 		EXIT_CALL
 #ifndef CONFIG_HOTPLUG
-		*(.ARM.exidx.devexit.text)
-		*(.ARM.extab.devexit.text)
 #endif
 #ifndef CONFIG_MMU
 		*(.fixup)
@@ -129,12 +123,12 @@ SECTIONS
 	 * Stack unwinding tables
 	 */
 	. = ALIGN(8);
-	.ARM.unwind_idx : {
+	.ARM.exidx : {
 		__start_unwind_idx = .;
 		*(.ARM.exidx*)
 		__stop_unwind_idx = .;
 	}
-	.ARM.unwind_tab : {
+	.ARM.extab : {
 		__start_unwind_tab = .;
 		*(.ARM.extab*)
 		__stop_unwind_tab = .;

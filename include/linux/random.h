@@ -46,10 +46,20 @@ struct rnd_state {
 
 /* Exported functions */
 
+/*
+ * Flags for getrandom(2)
+ *
+ * GRND_NONBLOCK	Don't block and return EAGAIN instead
+ * GRND_RANDOM		Use the /dev/random pool instead of /dev/urandom
+ */
+#define GRND_NONBLOCK	0x0001
+#define GRND_RANDOM	0x0002
+
 #ifdef __KERNEL__
 
 extern void rand_initialize_irq(int irq);
 
+extern void add_device_randomness(const void *, unsigned int);
 extern void add_input_randomness(unsigned int type, unsigned int code,
 				 unsigned int value);
 extern void add_interrupt_randomness(int irq);

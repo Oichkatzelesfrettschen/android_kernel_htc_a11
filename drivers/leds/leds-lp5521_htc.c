@@ -59,7 +59,7 @@ struct lp5521_led {
 	u8			max_current;
 	struct led_classdev	cdev;
 	struct mutex led_data_mutex;
-	struct alarm led_alarm;
+	struct android_alarm led_alarm;
 	struct work_struct led_work;
 	struct work_struct led_work_multicolor;
 	uint8_t Mode;
@@ -636,7 +636,7 @@ static void multicolor_work_func(struct work_struct *work)
 	}
 }
 
-static void led_alarm_handler(struct alarm *alarm)
+static void led_alarm_handler(struct android_alarm *alarm)
 {
 	struct lp5521_led *ldata;
 
@@ -687,12 +687,12 @@ static ssize_t lp5521_led_off_timer_store(struct device *dev,
 
 	off_timer = min * 60 + sec;
 
-	alarm_cancel(&ldata->led_alarm);
+	android_alarm_cancel(&ldata->led_alarm);
 	cancel_work_sync(&ldata->led_work);
 	if (off_timer) {
 		interval = ktime_set(off_timer, 0);
 		next_alarm = ktime_add(alarm_get_elapsed_realtime(), interval);
-		alarm_start_range(&ldata->led_alarm, next_alarm, next_alarm);
+		android_alarm_start_range(&ldata->led_alarm, next_alarm, next_alarm);
 	}
 
 	return count;
@@ -906,7 +906,7 @@ static int lp5521_led_probe(struct i2c_client *client
 		INIT_WORK(&cdata->leds[i].led_work, led_work_func);
 		INIT_WORK(&cdata->leds[i].led_work_multicolor, multicolor_work_func);
 		INIT_DELAYED_WORK(&cdata->leds[i].blink_delayed_work, led_blink_do_work);
-		alarm_init(&cdata->leds[i].led_alarm,
+		android_alarm_init(&cdata->leds[i].led_alarm,
 				ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP,
 				led_alarm_handler);
 	}

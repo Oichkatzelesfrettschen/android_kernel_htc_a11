@@ -38,6 +38,8 @@
 #define PRNG_CONFIG_MASK	0xFFFFFFFD
 #define PRNG_HW_ENABLE		0x00000002
 
+#define MSM_RNG_QUALITY 512
+
 #define MAX_HW_FIFO_DEPTH 16                     
 #define MAX_HW_FIFO_SIZE (MAX_HW_FIFO_DEPTH * 4) 
 
@@ -114,6 +116,15 @@ static int msm_rng_read(struct hwrng *rng, void *data, size_t max, bool wait)
 static struct hwrng msm_rng = {
 	.name = DRIVER_NAME,
 	.read = msm_rng_read,
+	/*
+	 * Entropy per 1024 bits read; hwrng_init() in core.c takes this
+	 * over default_quality (0) and starts khwrngd, which feeds the
+	 * input pool through add_hwgenerator_randomness().  A value of 0
+	 * leaves khwrngd off and getrandom() waiting on other sources.
+	 * The PRNG block's output entropy rate is undocumented, so each
+	 * bit is credited at one half.
+	 */
+	.quality = MSM_RNG_QUALITY,
 };
 
 static int __devinit msm_rng_enable_hw(struct msm_rng_device *msm_rng_dev)

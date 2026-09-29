@@ -84,6 +84,17 @@
 #define O_PATH		010000000
 #endif
 
+/* Bionic's fortified open declarations require the UAPI flag definition. */
+#ifndef __O_TMPFILE
+#define __O_TMPFILE	020000000
+#endif
+#ifndef O_TMPFILE
+#define O_TMPFILE	(__O_TMPFILE | O_DIRECTORY)
+#endif
+#ifndef O_TMPFILE_MASK
+#define O_TMPFILE_MASK	(__O_TMPFILE | O_DIRECTORY | O_CREAT)
+#endif
+
 #ifndef O_NDELAY
 #define O_NDELAY	O_NONBLOCK
 #endif

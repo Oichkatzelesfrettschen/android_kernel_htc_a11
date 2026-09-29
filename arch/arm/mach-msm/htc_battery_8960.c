@@ -218,7 +218,7 @@ struct htc_battery_timer {
 	unsigned int time_out;
 	struct work_struct batt_work;
 	struct delayed_work unknown_usb_detect_work;
-	struct alarm batt_check_wakeup_alarm;
+	struct android_alarm batt_check_wakeup_alarm;
 	struct timer_list batt_timer;
 	struct workqueue_struct *batt_wq;
 	struct wake_lock battery_lock;
@@ -1451,7 +1451,7 @@ static void batt_regular_timer_handler(unsigned long data)
 	}
 }
 
-static void batt_check_alarm_handler(struct alarm *alarm)
+static void batt_check_alarm_handler(struct android_alarm *alarm)
 {
 	BATT_LOG("alarm handler, but do nothing.");
 	return;
@@ -2657,7 +2657,7 @@ static int htc_battery_prepare(struct device *dev)
 		suspend_highfreq_check_reason, htc_batt_info.state);
 
 	next_alarm = ktime_add(alarm_get_elapsed_realtime(), interval);
-	alarm_start_range(&htc_batt_timer.batt_check_wakeup_alarm,
+	android_alarm_start_range(&htc_batt_timer.batt_check_wakeup_alarm,
 				next_alarm, ktime_add(next_alarm, slack));
 
 	return 0;
@@ -2825,7 +2825,7 @@ static int htc_battery_probe(struct platform_device *pdev)
 							unknown_usb_detect_worker);
 	init_timer(&htc_batt_timer.batt_timer);
 	htc_batt_timer.batt_timer.function = batt_regular_timer_handler;
-	alarm_init(&htc_batt_timer.batt_check_wakeup_alarm,
+	android_alarm_init(&htc_batt_timer.batt_check_wakeup_alarm,
 			ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP,
 			batt_check_alarm_handler);
 	htc_batt_timer.batt_wq = create_singlethread_workqueue("batt_timer");
