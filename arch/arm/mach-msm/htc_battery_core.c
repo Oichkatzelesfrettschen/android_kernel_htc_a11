@@ -100,7 +100,7 @@ static struct htc_battery_core_info battery_core_info;
 static int battery_register = 1;
 static int battery_over_loading;
 
-static struct alarm batt_charger_ctrl_alarm;
+static struct android_alarm batt_charger_ctrl_alarm;
 static struct work_struct batt_charger_ctrl_work;
 struct workqueue_struct *batt_charger_ctrl_wq;
 static unsigned int charger_ctrl_stat;
@@ -430,7 +430,7 @@ static ssize_t htc_battery_charger_switch(struct device *dev,
 	}
 	charger_ctrl_stat = enable;
 
-	alarm_cancel(&batt_charger_ctrl_alarm);
+	android_alarm_cancel(&batt_charger_ctrl_alarm);
 
 	return count;
 }
@@ -1035,7 +1035,7 @@ static ssize_t htc_battery_charger_ctrl_timer(struct device *dev,
 		}
 		interval = ktime_set(time_out, 0);
 		next_alarm = ktime_add(alarm_get_elapsed_realtime(), interval);
-		alarm_start_range(&batt_charger_ctrl_alarm,
+		android_alarm_start_range(&batt_charger_ctrl_alarm,
 					next_alarm, next_alarm);
 		charger_ctrl_stat = STOP_CHARGER;
 	} else if (time_out == 0) {
@@ -1045,7 +1045,7 @@ static ssize_t htc_battery_charger_ctrl_timer(struct device *dev,
 			BATT_ERR("charger control failed!");
 			return rc;
 		}
-		alarm_cancel(&batt_charger_ctrl_alarm);
+		android_alarm_cancel(&batt_charger_ctrl_alarm);
 		charger_ctrl_stat = ENABLE_CHARGER;
 	}
 
@@ -1065,7 +1065,7 @@ static void batt_charger_ctrl_func(struct work_struct *work)
 	charger_ctrl_stat = (unsigned int)ENABLE_CHARGER;
 }
 
-static void batt_charger_ctrl_alarm_handler(struct alarm *alarm)
+static void batt_charger_ctrl_alarm_handler(struct android_alarm *alarm)
 {
 	BATT_LOG("charger control alarm is timeout.");
 
@@ -1349,7 +1349,7 @@ int htc_battery_core_register(struct device *dev,
 	
 	charger_ctrl_stat = ENABLE_CHARGER;
 	INIT_WORK(&batt_charger_ctrl_work, batt_charger_ctrl_func);
-	alarm_init(&batt_charger_ctrl_alarm,
+	android_alarm_init(&batt_charger_ctrl_alarm,
 			ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP,
 			batt_charger_ctrl_alarm_handler);
 	batt_charger_ctrl_wq =

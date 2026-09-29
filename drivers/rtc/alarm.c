@@ -99,7 +99,7 @@ int htc_is_offalarm_enabled(void);
 
 static void update_timer_locked(struct alarm_queue *base, bool head_removed)
 {
-	struct alarm *alarm;
+	struct android_alarm *alarm;
 	bool is_wakeup = base == &alarms[ANDROID_ALARM_RTC_WAKEUP] ||
 			base == &alarms[ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP] ||
 			base == &alarms[ANDROID_ALARM_RTC_POWEROFF_WAKEUP];
@@ -115,7 +115,7 @@ static void update_timer_locked(struct alarm_queue *base, bool head_removed)
 	if (!base->first)
 		return;
 
-	alarm = container_of(base->first, struct alarm, node);
+	alarm = container_of(base->first, struct android_alarm, node);
 
 	pr_alarm(FLOW, "selected alarm, type %d, func %pF at %lld\n",
 		alarm->type, alarm->function, ktime_to_ns(alarm->expires));
@@ -132,12 +132,12 @@ static void update_timer_locked(struct alarm_queue *base, bool head_removed)
 	hrtimer_start_expires(&base->timer, HRTIMER_MODE_ABS);
 }
 
-static void alarm_enqueue_locked(struct alarm *alarm)
+static void alarm_enqueue_locked(struct android_alarm *alarm)
 {
 	struct alarm_queue *base = &alarms[alarm->type];
 	struct rb_node **link = &base->alarms.rb_node;
 	struct rb_node *parent = NULL;
-	struct alarm *entry;
+	struct android_alarm *entry;
 	int leftmost = 1;
 	bool was_first = false;
 
@@ -155,7 +155,7 @@ static void alarm_enqueue_locked(struct alarm *alarm)
 
 	while (*link) {
 		parent = *link;
-		entry = rb_entry(parent, struct alarm, node);
+		entry = rb_entry(parent, struct android_alarm, node);
 		if (alarm->expires.tv64 < entry->expires.tv64) {
 			link = &(*link)->rb_left;
 		} else {
@@ -172,8 +172,8 @@ static void alarm_enqueue_locked(struct alarm *alarm)
 	rb_insert_color(&alarm->node, &base->alarms);
 }
 
-void alarm_init(struct alarm *alarm,
-	enum android_alarm_type type, void (*function)(struct alarm *))
+void android_alarm_init(struct android_alarm *alarm,
+	enum android_alarm_type type, void (*function)(struct android_alarm *))
 {
 	RB_CLEAR_NODE(&alarm->node);
 	alarm->type = type;
@@ -183,7 +183,7 @@ void alarm_init(struct alarm *alarm,
 }
 
 
-void alarm_start_range(struct alarm *alarm, ktime_t start, ktime_t end)
+void android_alarm_start_range(struct android_alarm *alarm, ktime_t start, ktime_t end)
 {
 	unsigned long flags;
         unsigned long rtc_current_time = 0;
@@ -214,7 +214,7 @@ void alarm_start_range(struct alarm *alarm, ktime_t start, ktime_t end)
 	}
 }
 
-int alarm_try_to_cancel(struct alarm *alarm)
+int android_alarm_try_to_cancel(struct android_alarm *alarm)
 {
 	struct alarm_queue *base = &alarms[alarm->type];
 	unsigned long flags;
@@ -244,17 +244,17 @@ int alarm_try_to_cancel(struct alarm *alarm)
 	return ret;
 }
 
-int alarm_cancel(struct alarm *alarm)
+int android_alarm_cancel(struct android_alarm *alarm)
 {
 	for (;;) {
-		int ret = alarm_try_to_cancel(alarm);
+		int ret = android_alarm_try_to_cancel(alarm);
 		if (ret >= 0)
 			return ret;
 		cpu_relax();
 	}
 }
 
-int alarm_set_rtc(struct timespec new_time)
+int android_alarm_set_rtc(struct timespec new_time)
 {
 	int i;
 	int ret;
@@ -293,17 +293,17 @@ int alarm_set_rtc(struct timespec new_time)
 	}
 	spin_unlock_irqrestore(&alarm_slock, flags);
 	if (ret < 0) {
-		pr_alarm(ERROR, "alarm_set_rtc: Failed to set time\n");
+		pr_alarm(ERROR, "android_alarm_set_rtc: Failed to set time\n");
 		goto err;
 	}
 	if (!alarm_rtc_dev) {
 		pr_alarm(ERROR,
-			"alarm_set_rtc: no RTC, time will be lost on reboot\n");
+			"android_alarm_set_rtc: no RTC, time will be lost on reboot\n");
 		goto err;
 	}
 	ret = rtc_set_time(alarm_rtc_dev, &rtc_new_rtc_time);
 	if (ret < 0)
-		pr_alarm(ERROR, "alarm_set_rtc: "
+		pr_alarm(ERROR, "android_alarm_set_rtc: "
 			"Failed to set RTC, time will be lost on reboot\n");
 err:
 	wake_unlock(&alarm_rtc_wake_lock);
@@ -351,7 +351,7 @@ ktime_t alarm_get_elapsed_realtime(void)
 static enum hrtimer_restart alarm_timer_triggered(struct hrtimer *timer)
 {
 	struct alarm_queue *base;
-	struct alarm *alarm;
+	struct android_alarm *alarm;
 	unsigned long flags;
 	ktime_t now;
 
@@ -365,7 +365,7 @@ static enum hrtimer_restart alarm_timer_triggered(struct hrtimer *timer)
 		base - alarms, ktime_to_ns(now));
 
 	while (base->first) {
-		alarm = container_of(base->first, struct alarm, node);
+		alarm = container_of(base->first, struct android_alarm, node);
 		if (alarm->softexpires.tv64 > now.tv64) {
 			pr_alarm(FLOW, "don't call alarm, %pF, %lld (s %lld)\n",
 				alarm->function, ktime_to_ns(alarm->expires),

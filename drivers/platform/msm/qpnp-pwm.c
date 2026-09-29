@@ -337,7 +337,7 @@ struct qpnp_led_data {
 	struct delayed_work reflesh_timer;
 	struct early_suspend    flt_early_suspend;
 	int                     torch_mode;
-	struct alarm            led_alarm;
+	struct android_alarm            led_alarm;
 	struct work_struct 		led_off_work;
 	int			status;
 };

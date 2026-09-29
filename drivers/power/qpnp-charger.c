@@ -413,7 +413,7 @@ struct qpnp_chg_chip {
 	struct qpnp_adc_tm_chip		*adc_tm_dev;
 	struct mutex			jeita_configure_lock;
 	struct mutex			batfet_vreg_lock;
-	struct alarm			reduce_power_stage_alarm;
+	struct android_alarm			reduce_power_stage_alarm;
 	struct work_struct		reduce_power_stage_work;
 	struct wake_lock		vin_collapse_check_wake_lock;
 	struct wake_lock		reverse_boost_wa_wake_lock;
@@ -6355,7 +6355,7 @@ qpnp_chg_reduce_power_stage(struct qpnp_chg_chip *chip)
 	if (usb_present && usb_ma_above_wall) {
 		getnstimeofday(&ts);
 		ts.tv_sec += POWER_STAGE_REDUCE_CHECK_PERIOD_SECONDS;
-		alarm_start_range(&chip->reduce_power_stage_alarm,
+		android_alarm_start_range(&chip->reduce_power_stage_alarm,
 					timespec_to_ktime(ts),
 					timespec_to_ktime(ts));
 	} else {
@@ -6393,7 +6393,7 @@ qpnp_chg_reduce_power_stage_work(struct work_struct *work)
 }
 
 static void
-qpnp_chg_reduce_power_stage_callback(struct alarm *alarm)
+qpnp_chg_reduce_power_stage_callback(struct android_alarm *alarm)
 {
 	struct qpnp_chg_chip *chip = container_of(alarm, struct qpnp_chg_chip,
 						reduce_power_stage_alarm);
@@ -7466,7 +7466,7 @@ qpnp_charger_probe(struct spmi_device *spmi)
 
 	mutex_init(&chip->jeita_configure_lock);
 	mutex_init(&chip->batfet_vreg_lock);
-	alarm_init(&chip->reduce_power_stage_alarm, ANDROID_ALARM_RTC_WAKEUP,
+	android_alarm_init(&chip->reduce_power_stage_alarm, ANDROID_ALARM_RTC_WAKEUP,
 			qpnp_chg_reduce_power_stage_callback);
 	INIT_WORK(&chip->reduce_power_stage_work,
 			qpnp_chg_reduce_power_stage_work);
@@ -7879,7 +7879,7 @@ qpnp_charger_remove(struct spmi_device *spmi)
 	
 	
 	cancel_work_sync(&chip->reduce_power_stage_work);
-	alarm_cancel(&chip->reduce_power_stage_alarm);
+	android_alarm_cancel(&chip->reduce_power_stage_alarm);
 	
 	
 	mutex_destroy(&chip->jeita_configure_lock);
