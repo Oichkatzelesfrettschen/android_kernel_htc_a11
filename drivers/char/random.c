@@ -125,6 +125,7 @@
  * The current exported interfaces for gathering environmental noise
  * from the devices are:
  *
+ *	void add_device_randomness(const void *buf, unsigned int size);
  * 	void add_input_randomness(unsigned int type, unsigned int code,
  *                                unsigned int value);
  * 	void add_interrupt_randomness(int irq);
@@ -622,6 +623,25 @@ static void set_timer_rand_state(unsigned int irq,
 	desc->timer_rand_state = state;
 }
 #endif
+
+/*
+ * Add device- or boot-specific data to the input and nonblocking
+ * pools to help initialize them to unique values.
+ *
+ * None of this adds any entropy, it is meant to avoid the
+ * problem of the nonblocking pool having similar initial state
+ * across largely identical devices.
+ */
+void add_device_randomness(const void *buf, unsigned int size)
+{
+	unsigned long time = get_cycles() ^ jiffies;
+
+	mix_pool_bytes(&input_pool, buf, size);
+	mix_pool_bytes(&input_pool, &time, sizeof(time));
+	mix_pool_bytes(&nonblocking_pool, buf, size);
+	mix_pool_bytes(&nonblocking_pool, &time, sizeof(time));
+}
+EXPORT_SYMBOL(add_device_randomness);
 
 static struct timer_rand_state input_timer_state;
 
