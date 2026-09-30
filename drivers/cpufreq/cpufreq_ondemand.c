@@ -1494,7 +1494,7 @@ static int dbs_sync_thread(void *data)
 	this_dbs_info = &per_cpu(od_cpu_dbs_info, cpu);
 
 	while (1) {
-		wait_event(this_dbs_info->sync_wq,
+		wait_event_interruptible(this_dbs_info->sync_wq,
 			   sync_pending(this_dbs_info) ||
 			   kthread_should_stop());
 
@@ -1952,6 +1952,7 @@ static int __init cpufreq_gov_dbs_init(void)
 				sched_setscheduler_nocheck(pthread, SCHED_FIFO, &param);
 				get_task_struct(pthread);
 				per_cpu(up_task, i) = pthread;
+				wake_up_process(pthread);
 			}
 		}
 
