@@ -411,8 +411,7 @@ limCheckAndAddBssDescription(tpAniSirGlobal pMac,
            ( pMac->lim.gLimReturnAfterFirstMatch & 0x01 ) &&
            (pMac->lim.gpLimMlmScanReq->numSsid) &&
            !limIsScanRequestedSSID(pMac, &pBPR->ssId)) ||
-          (!fFound && (pMac->lim.gpLimMlmScanReq &&
-                       pMac->lim.gpLimMlmScanReq->bssId) &&
+          (!fFound && (pMac->lim.gpLimMlmScanReq) &&
            !vos_mem_compare(bssid,
                            &pMac->lim.gpLimMlmScanReq->bssId, 6))))
     {
@@ -762,7 +761,7 @@ limLookupNaddHashEntry(tpAniSirGlobal pMac,
                            (0x00 == pbIe[2]) && (0x50 == pbIe[3]) && (0xf2 == pbIe[4]) && (0x04 == pbIe[5]))
                         {
                             //Found it
-                            if((DOT11F_IE_WSCPROBERES_MAX_LEN - 2) >= pbIe[1])
+
                             {
                                 vos_mem_copy(pBssDescr->bssDescription.WscIeProbeRsp,
                                    pbIe, pbIe[1] + 2);
@@ -985,7 +984,7 @@ limLookupNaddLfrHashEntry(tpAniSirGlobal pMac,
                            (0xf2 == pbIe[4]) && (0x04 == pbIe[5]))
                         {
                             //Found it
-                            if((DOT11F_IE_WSCPROBERES_MAX_LEN - 2) >= pbIe[1])
+
                             {
                                 vos_mem_copy( pBssDescr->bssDescription.WscIeProbeRsp,
                                    pbIe, pbIe[1] + 2);

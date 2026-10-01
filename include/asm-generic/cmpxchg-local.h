@@ -40,7 +40,7 @@ static inline unsigned long __cmpxchg_local_generic(volatile void *ptr,
 			*(u64 *)ptr = (u64)new;
 		break;
 	default:
-		wrong_size_cmpxchg(ptr);
+		prev = wrong_size_cmpxchg(ptr);
 	}
 	local_irq_restore(flags);
 	return prev;

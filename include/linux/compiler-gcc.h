@@ -47,14 +47,14 @@
  */
 #if !defined(CONFIG_ARCH_SUPPORTS_OPTIMIZED_INLINING) || \
     !defined(CONFIG_OPTIMIZE_INLINING) || (__GNUC__ < 4)
-# define inline		inline		__attribute__((always_inline))
-# define __inline__	__inline__	__attribute__((always_inline))
-# define __inline	__inline	__attribute__((always_inline))
+# define inline		inline		__attribute__((always_inline, unused))
+# define __inline__	__inline__	__attribute__((always_inline, unused))
+# define __inline	__inline	__attribute__((always_inline, unused))
 #else
 /* A lot of inline functions can cause havoc with function tracing */
-# define inline		inline		notrace
-# define __inline__	__inline__	notrace
-# define __inline	__inline	notrace
+# define inline		inline		__attribute__((unused)) notrace
+# define __inline__	__inline__	__attribute__((unused)) notrace
+# define __inline	__inline	__attribute__((unused)) notrace
 #endif
 
 #define __deprecated			__attribute__((deprecated))
@@ -107,6 +107,11 @@
  * A trick to suppress uninitialized variable warning without generating any
  * code
  */
+#ifdef __clang__
+/* Self-initialization reads an indeterminate value under Clang. */
+#define uninitialized_var(x) x = { 0 }
+#else
 #define uninitialized_var(x) x = x
+#endif
 
 #define __always_inline		inline __attribute__((always_inline))

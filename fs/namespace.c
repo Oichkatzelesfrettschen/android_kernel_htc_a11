@@ -582,7 +582,7 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 {
 	struct super_block *sb = old->mnt.mnt_sb;
 	struct mount *mnt;
-	int err;
+	int err = -ENOMEM;
 
 	mnt = alloc_vfsmnt(old->mnt_devname);
 	if (!mnt)
@@ -1914,9 +1914,9 @@ long do_mount(const char *dev_name, const char *dir_name,
 	if (flags & MS_NOEXEC)
 		mnt_flags |= MNT_NOEXEC;
 	// if (flags & MS_NOATIME)
-		mnt_flags |= MNT_NOATIME;
+	mnt_flags |= MNT_NOATIME;
 	// if (flags & MS_NODIRATIME)
-		mnt_flags |= MNT_NODIRATIME;
+	mnt_flags |= MNT_NODIRATIME;
 	if (flags & MS_STRICTATIME)
 		mnt_flags &= ~(MNT_RELATIME | MNT_NOATIME);
 	if (flags & MS_RDONLY)

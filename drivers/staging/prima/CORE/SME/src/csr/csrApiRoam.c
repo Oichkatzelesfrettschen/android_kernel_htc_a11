@@ -2777,8 +2777,8 @@ eHalStatus csrRoamPrepareBssConfig(tpAniSirGlobal pMac, tCsrRoamProfile *pProfil
 
         if (((pBssConfig->uCfgDot11Mode == eCSR_CFG_DOT11_MODE_11N)  || 
                          (pBssConfig->uCfgDot11Mode == eCSR_CFG_DOT11_MODE_11AC)) &&
-                         ((pBssConfig->qosType != eCSR_MEDIUM_ACCESS_WMM_eDCF_DSCP) ||
-                          (pBssConfig->qosType != eCSR_MEDIUM_ACCESS_11e_HCF) ||
+                         ((pBssConfig->qosType != eCSR_MEDIUM_ACCESS_WMM_eDCF_DSCP) &&
+                          (pBssConfig->qosType != eCSR_MEDIUM_ACCESS_11e_HCF) &&
                           (pBssConfig->qosType != eCSR_MEDIUM_ACCESS_11e_eDCF) ))
         {
             //Joining BSS is 11n capable and WMM is disabled on AP.
@@ -5887,7 +5887,7 @@ eHalStatus csrRoamCopyConnectedProfile(tpAniSirGlobal pMac, tANI_U32 sessionId, 
     do
     {
         palZeroMemory(pMac->hHdd, pDstProfile, sizeof(tCsrRoamProfile));
-        if(pSrcProfile->bssid)
+
         {
             status = palAllocateMemory(pMac->hHdd, (void **)&pDstProfile->BSSIDs.bssid, sizeof(tCsrBssid));
             if(!HAL_STATUS_SUCCESS(status))
@@ -5897,7 +5897,7 @@ eHalStatus csrRoamCopyConnectedProfile(tpAniSirGlobal pMac, tANI_U32 sessionId, 
             pDstProfile->BSSIDs.numOfBSSIDs = 1;
             palCopyMemory(pMac->hHdd, pDstProfile->BSSIDs.bssid, pSrcProfile->bssid, sizeof(tCsrBssid));
         }
-        if(pSrcProfile->SSID.ssId)
+
         {
             status = palAllocateMemory(pMac->hHdd, (void **)&pDstProfile->SSIDs.SSIDList, sizeof(tCsrSSIDInfo));
             if(!HAL_STATUS_SUCCESS(status))

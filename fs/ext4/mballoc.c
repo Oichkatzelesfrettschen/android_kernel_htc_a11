@@ -1535,9 +1535,10 @@ static int ext4_mb_seq_groups_show(struct seq_file *seq, void *v)
 	int i;
 	int err;
 	struct ext4_buddy e4b;
-	struct sg {
+	union {
 		struct ext4_group_info info;
-		ext4_grpblk_t counters[16];
+		char buffer[sizeof(struct ext4_group_info) +
+			    16 * sizeof(ext4_grpblk_t)];
 	} sg;
 
 	group--;

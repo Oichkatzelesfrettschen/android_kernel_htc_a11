@@ -88,7 +88,7 @@
 	.endm
 
 	.macro str1b ptr reg cond=al abort
-	str\cond\()b \reg, [\ptr], #1
+	strb\cond \reg, [\ptr], #1
 	.endm
 
 	.macro enter reg1 reg2
@@ -110,7 +110,7 @@ ENTRY(__copy_from_user)
 ENDPROC(__copy_from_user)
 
 	.pushsection .fixup,"ax"
-	.align 0
+	.align 2
 	copy_abort_preamble
 	ldmfd	sp!, {r1, r2}
 	sub	r3, r0, r1

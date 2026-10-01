@@ -1,0 +1,56 @@
+a11 Clang build and assembly alignment gate
+==========================================
+
+Clang's integrated assembler needs unified ARM instruction suffix ordering
+and explicit four-byte alignment on processor tables, SMP alternatives,
+exception fixups, vectors, and identity-map code. CP15 control and domain
+accesses carry compiler memory barriers around translation and permission
+changes. Qualcomm Venum PMU accesses retain their vendor-defined CP10
+selectors; their two register accessor pairs carry a local diagnostic guard.
+
+Run from the kernel source root with Clang 22.1.8 and matching LLVM tools
+on PATH. Set GCC_PREFIX to the Android build tree's
+prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-
+prefix. Set HOST_CLANG to prebuilts/clang/host/linux-x86/clang-r383902b1/bin/clang
+and FLEX to prebuilts/build-tools/linux-x86/bin/flex in that tree.
+Keep CONFIG_CC_OPTIMIZE_FOR_SIZE=y in both output configurations.
+
+  make O=out-clang ARCH=arm LLVM=1 CROSS_COMPILE="$GCC_PREFIX" cyanogenmod_a11ul_defconfig
+  make -k -j16 O=out-clang ARCH=arm LLVM=1 CROSS_COMPILE="$GCC_PREFIX" \
+    HOSTCC="$HOST_CLANG" HOSTCXX="${HOST_CLANG}++" \
+    HOSTCFLAGS=-fuse-ld=lld HOSTLDFLAGS=-fuse-ld=lld LEX="$FLEX" \
+    KCFLAGS=-Werror zImage >out-clang-k.log 2>&1
+
+  make O=out-gcc ARCH=arm CROSS_COMPILE="$GCC_PREFIX" cyanogenmod_a11ul_defconfig
+  make -j16 O=out-gcc ARCH=arm CROSS_COMPILE="$GCC_PREFIX" KCFLAGS=-Werror zImage
+
+  READELF="${GCC_PREFIX}readelf" perl scripts/compare-arm-asm-alignment.pl out-gcc out-clang
+  wc -c out-gcc/arch/arm/boot/zImage out-clang/arch/arm/boot/zImage
+
+Compiler-option probes reject unsupported options with warnings treated as
+errors. Freestanding compilation prevents Clang from substituting hosted C
+library entry points for the kernel's runtime operations.
+Host compilation excludes linker-selection flags; HOSTLDFLAGS selects
+LLD at link time. Compiler diagnostics remain enabled. Prima's firmware ABI
+and generated-source allowances are scoped in its Kbuild, with capability
+probes and comments. Flexible crypto descriptors and FunctionFS allocations
+use explicit storage and offsets instead of variable-sized structure fields.
+
+The comparison inventories .S compile commands in both output trees and
+compares named section alignments. Missing assembler objects and an empty
+inventory fail the gate. GNU and LLVM can emit different empty sections and
+nonallocated ELF/debug metadata; retain those differences separately from
+runtime alignment defects. Record compiler/linker versions, complete build
+logs, image hashes, sizes, diagnostic inventories, and comparator output.
+
+ThinLTO remains disabled. Linux 3.4 Kbuild expects ELF objects in recordmcount
+and modpost; it lacks a bitcode-aware compilation/link pipeline, preservation
+rules for assembly-referenced symbols, and native-object materialization
+before those tools. A ThinLTO port requires separate Kbuild and module
+validation.
+
+The kernel build establishes source compilation and image linking only.
+The orchestrator must verify boot, SMP startup, VFP/NEON, signal delivery,
+GPU/display, Wi-Fi, audio, battery reporting, FunctionFS/AIO reconnects,
+suspend/resume, and module loading on a11chl. Compare runtime behavior with
+the retained GCC control image under the same product configuration.

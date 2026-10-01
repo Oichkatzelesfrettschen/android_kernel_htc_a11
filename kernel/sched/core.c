@@ -5673,8 +5673,10 @@ void __init sched_init(void)
 #ifdef CONFIG_SMP
 	zalloc_cpumask_var(&sched_domains_tmpmask, GFP_NOWAIT);
 	
+#ifdef CONFIG_CPUMASK_OFFSTACK
 	if (cpu_isolated_map == NULL)
 		zalloc_cpumask_var(&cpu_isolated_map, GFP_NOWAIT);
+#endif
 #endif
 	init_sched_fair_class();
 

@@ -74,7 +74,7 @@ static void __iomem *virt_bases[N_BASES];
 #define lpaaudio_pll_lpass_source_val 1
 #define gpll0_lpass_source_val 5
 
-#define FIXDIV(div) (div ? (2 * (div) - 1) : (0))
+#define FIXDIV(div) ((div) != 0 ? (2 * (div) - 1) : (0))
 
 #define F_GCC(f, s, div, m, n) \
 	{ \

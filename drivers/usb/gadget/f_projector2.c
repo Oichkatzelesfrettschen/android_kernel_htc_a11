@@ -353,7 +353,12 @@ static void touch2_event_func(struct projector2_dev *dev,
 	if (num_touch > 0) {
 		int i = 0;
 		for (i = 0; i < num_touch; i++) {
-			touch_event_rotate(dev, &data->x, &data->y);
+			unsigned short x = data->x;
+			unsigned short y = data->y;
+
+			touch_event_rotate(dev, &x, &y);
+			data->x = x;
+			data->y = y;
 			input_report_abs(dev->touch_input, ABS_MT_PRESSURE,
 							data->pressure);
 			input_report_abs(dev->touch_input, ABS_MT_POSITION_X,
@@ -726,9 +731,9 @@ static int projector2_function_set_alt(struct usb_function *f,
 	dev->online = 1;
 
 #if HSML_VERSION_12
-    if (dev->hsml_ver != cHSML_VER_12)
+	if (dev->hsml_ver != cHSML_VER_12)
 #endif
-        projector2_queue_out(dev);
+		projector2_queue_out(dev);
 
 	return 0;
 }
@@ -802,9 +807,9 @@ static void projector2_function_disable(struct usb_function *f)
 	usb_ep_disable(dev->ep_in);
 
 #if HSML_VERSION_12
-    if (dev->hsml_ver != cHSML_VER_12)
+	if (dev->hsml_ver != cHSML_VER_12)
 #endif
-        usb_ep_disable(dev->ep_out);
+		usb_ep_disable(dev->ep_out);
 
 	if (atomic_read(&dev->prj2_status) != PRJ2_OFFLINE) {
 		atomic_set(&dev->prj2_status, PRJ2_OFFLINE);

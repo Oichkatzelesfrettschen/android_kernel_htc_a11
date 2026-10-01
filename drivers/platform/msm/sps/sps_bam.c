@@ -161,7 +161,7 @@ int sps_bam_enable(struct sps_bam *dev)
 {
 	u32 num_pipes;
 	u32 irq_mask;
-	int result;
+	int result = 0;
 	int rc;
 	int MTIenabled;
 
@@ -426,7 +426,7 @@ int sps_bam_device_init(struct sps_bam *dev)
 
 int sps_bam_device_de_init(struct sps_bam *dev)
 {
-	int result;
+	int result = 0;
 
 	SPS_DBG2("sps:BAM device DEINIT: phys 0x%x IRQ %d\n",
 		BAM_ID(dev), dev->props.irq);
@@ -440,7 +440,7 @@ int sps_bam_reset(struct sps_bam *dev)
 {
 	struct sps_pipe *pipe;
 	u32 pipe_index;
-	int result;
+	int result = 0;
 
 	SPS_DBG2("sps:BAM device RESET: phys 0x%x IRQ %d\n",
 		BAM_ID(dev), dev->props.irq);
@@ -598,7 +598,7 @@ int sps_bam_pipe_connect(struct sps_pipe *bam_pipe,
 	const struct sps_conn_end_pt *other_pipe;
 	void *desc_buf = NULL;
 	u32 pipe_index;
-	int result;
+	int result = 0;
 
 	
 	pipe_clear(bam_pipe);
@@ -806,7 +806,7 @@ exit_init_err:
 int sps_bam_pipe_disconnect(struct sps_bam *dev, u32 pipe_index)
 {
 	struct sps_pipe *pipe;
-	int result;
+	int result = 0;
 
 	if (pipe_index >= dev->props.num_pipes) {
 		SPS_ERR("sps:Invalid BAM 0x%x pipe: %d\n", BAM_ID(dev),
@@ -1173,7 +1173,7 @@ int sps_bam_pipe_transfer(struct sps_bam *dev,
 	u32 flags;
 	void *user;
 	int n;
-	int result;
+	int result = 0;
 
 	if (transfer->iovec_count == 0) {
 		SPS_ERR("sps:iovec count zero: BAM 0x%x pipe %d\n",

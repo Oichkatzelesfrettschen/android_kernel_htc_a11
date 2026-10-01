@@ -6707,7 +6707,7 @@ void himax_touch_information(void)
 		
 		himax_read_flash( temp_buffer, 0x3EE, 2);
 
-		if ((temp_buffer[0] && 0x04) == 0x04) {
+		if ((temp_buffer[0] & 0x04) == 0x04) {
 			HX_XY_REVERSE = true;
 		} else {
 			HX_XY_REVERSE = false;

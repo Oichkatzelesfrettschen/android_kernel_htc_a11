@@ -367,48 +367,6 @@ typedef enum
    WNI_CFG_LDPC_FIXED_RATE_MCS_40MHZ_1NSS_MM_SG_150_MBPS
 } eCfgFixedRateCfgType;
 
-/* Legacy IDX based rate table */
-typedef struct
-{
-   v_U16_t   legacy_rate_index;
-   v_U32_t   legacy_rate;
-} supported_legacy_rate_t;
-static const supported_legacy_rate_t legacy_rate[] =
-{
-/* IDX   Rate, 100kbps */
-   {2,   10},
-   {4,   20},
-   {11,  55},
-   {12,  60},
-   {18,  90},
-   {24,  120},
-   {36,  180},
-   {48,  240},
-   {66,  330},
-   {72,  360},
-   {96,  480},
-   {108, 540}
-};
-
-/* 11N MCS based rate table */
-typedef struct
-{
-   v_U8_t   mcs_index_11n;
-   v_U32_t  rate_11n[4];
-} supported_11n_rate_t;
-static const supported_11n_rate_t mcs_rate_11n[] =
-{
-/* MCS  L20   L40   S20  S40 */
-   {0,  {65,  135,  72,  150}},
-   {1,  {130, 270,  144, 300}},
-   {2,  {195, 405,  217, 450}},
-   {3,  {260, 540,  289, 600}},
-   {4,  {390, 810,  433, 900}},
-   {5,  {520, 1080, 578, 1200}},
-   {6,  {585, 1215, 650, 1350}},
-   {7,  {650, 1350, 722, 1500}}
-};
-
 /* 11AC MCS based rate table */
 typedef struct
 {
@@ -2359,24 +2317,35 @@ static iw_softap_ap_stats(struct net_device *dev,
                         union iwreq_data *wrqu, char *extra)
 {
     hdd_adapter_t *pHostapdAdapter = (netdev_priv(dev));
-    WLANTL_TRANSFER_STA_TYPE  statBuffer;
+    WLANTL_TRANSFER_STA_TYPE *statBuffer;
+    VOS_STATUS status;
     char *pstatbuf;
     int len = wrqu->data.length;
     pstatbuf = wrqu->data.pointer;
 
-    WLANSAP_GetStatistics((WLAN_HDD_GET_CTX(pHostapdAdapter))->pvosContext, &statBuffer, (v_BOOL_t)wrqu->data.flags);
+    statBuffer = kmalloc(sizeof(*statBuffer), GFP_KERNEL);
+    if (NULL == statBuffer)
+        return -ENOMEM;
+
+    status = WLANSAP_GetStatistics((WLAN_HDD_GET_CTX(pHostapdAdapter))->pvosContext, statBuffer, (v_BOOL_t)wrqu->data.flags);
+    if (!VOS_IS_STATUS_SUCCESS(status))
+    {
+        kfree(statBuffer);
+        return -EIO;
+    }
 
     len = snprintf(pstatbuf, len,
             "RUF=%d RMF=%d RBF=%d "
             "RUB=%d RMB=%d RBB=%d "
             "TUF=%d TMF=%d TBF=%d "
             "TUB=%d TMB=%d TBB=%d",
-            (int)statBuffer.rxUCFcnt, (int)statBuffer.rxMCFcnt, (int)statBuffer.rxBCFcnt,
-            (int)statBuffer.rxUCBcnt, (int)statBuffer.rxMCBcnt, (int)statBuffer.rxBCBcnt,
-            (int)statBuffer.txUCFcnt, (int)statBuffer.txMCFcnt, (int)statBuffer.txBCFcnt,
-            (int)statBuffer.txUCBcnt, (int)statBuffer.txMCBcnt, (int)statBuffer.txBCBcnt
+            (int)statBuffer->rxUCFcnt, (int)statBuffer->rxMCFcnt, (int)statBuffer->rxBCFcnt,
+            (int)statBuffer->rxUCBcnt, (int)statBuffer->rxMCBcnt, (int)statBuffer->rxBCBcnt,
+            (int)statBuffer->txUCFcnt, (int)statBuffer->txMCFcnt, (int)statBuffer->txBCFcnt,
+            (int)statBuffer->txUCBcnt, (int)statBuffer->txMCBcnt, (int)statBuffer->txBCBcnt
             );
 
+    kfree(statBuffer);
     wrqu->data.length -= len;
     return 0;
 }

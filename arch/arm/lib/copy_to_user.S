@@ -53,7 +53,7 @@
 	.endm
 
 	.macro ldr1b ptr reg cond=al abort
-	ldr\cond\()b \reg, [\ptr], #1
+	ldrb\cond \reg, [\ptr], #1
 	.endm
 
 	.macro str1w ptr reg abort
@@ -115,7 +115,7 @@ ENDPROC(__copy_to_user)
 ENDPROC(__copy_to_user_std)
 
 	.pushsection .fixup,"ax"
-	.align 0
+	.align 2
 	copy_abort_preamble
 	ldmfd	sp!, {r1, r2, r3}
 	sub	r0, r0, r1

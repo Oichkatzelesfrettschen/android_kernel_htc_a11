@@ -365,7 +365,7 @@ struct wled_config_data {
 	u8	ovp_val;
 	u8	boost_curr_lim;
 	u8	cp_select;
-	u8	ctrl_delay_us;
+	u32	ctrl_delay_us;
 	u8	switch_freq;
 	u8	op_fdbck;
 	u8	pmic_version;
@@ -2824,7 +2824,7 @@ static int __devinit qpnp_get_config_wled(struct qpnp_led_data *led,
 	led->wled_cfg->ctrl_delay_us = WLED_CTRL_DLY_DEFAULT;
 	rc = of_property_read_u32(node, "qcom,ctrl-delay-us", &val);
 	if (!rc)
-		led->wled_cfg->ctrl_delay_us = (u8) val;
+		led->wled_cfg->ctrl_delay_us = val;
 	else if (rc != -EINVAL)
 		return rc;
 
@@ -3172,7 +3172,7 @@ static int __devinit qpnp_get_config_kpdbl(struct qpnp_led_data *led,
 {
 	int rc;
 	u32 val;
-	u8 led_mode;
+	int led_mode;
 	const char *mode;
 
 	led->kpdbl_cfg = devm_kzalloc(&led->spmi_dev->dev,
@@ -3230,7 +3230,7 @@ static int __devinit qpnp_get_config_rgb(struct qpnp_led_data *led,
 				struct device_node *node)
 {
 	int rc;
-	u8 led_mode;
+	int led_mode;
 	const char *mode;
 
 	led->rgb_cfg = devm_kzalloc(&led->spmi_dev->dev,
@@ -3294,7 +3294,7 @@ static int __devinit qpnp_get_config_mpp(struct qpnp_led_data *led,
 {
 	int rc;
 	u32 val;
-	u8 led_mode;
+	int led_mode;
 	const char *mode;
 
 	led->mpp_cfg = devm_kzalloc(&led->spmi_dev->dev,

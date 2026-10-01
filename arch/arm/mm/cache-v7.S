@@ -386,6 +386,7 @@ ENTRY(v7_dma_unmap_area)
 ENDPROC(v7_dma_unmap_area)
 
 	__INITDATA
+	.align	2
 
 	@ define struct cpu_cache_fns (see <asm/cacheflush.h> and proc-macros.S)
 	define_cache_functions v7

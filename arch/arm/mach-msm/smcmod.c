@@ -403,6 +403,7 @@ static int smcmod_send_msg_digest_cmd(struct smcmod_msg_digest_req *reqp)
 	struct ion_handle *ion_input_handlep = NULL;
 	struct ion_handle *ion_output_handlep = NULL;
 	size_t size = 0;
+	uint32_t buffer_phys_addr = 0;
 
 	if (IS_ERR_OR_NULL(reqp))
 		return -EINVAL;
@@ -429,7 +430,8 @@ static int smcmod_send_msg_digest_cmd(struct smcmod_msg_digest_req *reqp)
 	if (!reqp->key_is_null) {
 		/* import the key buffer and get the physical address */
 		ret = smcmod_ion_fd_to_phys(reqp->ion_key_fd, ion_clientp,
-			&ion_key_handlep, &scm_req.key_phys_addr, &size);
+			&ion_key_handlep, &buffer_phys_addr, &size);
+		scm_req.key_phys_addr = buffer_phys_addr;
 		if (ret < 0)
 			goto buf_cleanup;
 
@@ -444,7 +446,8 @@ static int smcmod_send_msg_digest_cmd(struct smcmod_msg_digest_req *reqp)
 
 	/* import the input buffer and get the physical address */
 	ret = smcmod_ion_fd_to_phys(reqp->ion_input_fd, ion_clientp,
-		&ion_input_handlep, &scm_req.input_phys_addr, &size);
+		&ion_input_handlep, &buffer_phys_addr, &size);
+	scm_req.input_phys_addr = buffer_phys_addr;
 	if (ret < 0)
 		goto buf_cleanup;
 
@@ -458,7 +461,8 @@ static int smcmod_send_msg_digest_cmd(struct smcmod_msg_digest_req *reqp)
 
 	/* import the output buffer and get the physical address */
 	ret = smcmod_ion_fd_to_phys(reqp->ion_output_fd, ion_clientp,
-		&ion_output_handlep, &scm_req.output_phys_addr, &size);
+		&ion_output_handlep, &buffer_phys_addr, &size);
+	scm_req.output_phys_addr = buffer_phys_addr;
 	if (ret < 0)
 		goto buf_cleanup;
 

@@ -877,14 +877,7 @@ WLANBAP_STARxCB
     vosStatus = vos_pkt_extract_data( vosDataBuff, sizeof(w8023Header), (v_VOID_t *)aucLLCHeader,
                                    &llcHeaderLen);
 
-    if ( NULL == aucLLCHeader/*LLC Header*/ )
-    {
-        VOS_TRACE( VOS_MODULE_ID_TL, VOS_TRACE_LEVEL_ERROR,
-                 "WLANBAP_STARxCB:Cannot extract LLC header");
-        /* Drop packet */
-        vos_pkt_return_packet(vosDataBuff);
-        return VOS_STATUS_E_FAULT;
-    }
+
     
     vos_mem_copy(&protoType,&aucLLCHeader[WLANBAP_LLC_PROTO_TYPE_OFFSET],WLANBAP_LLC_PROTO_TYPE_SIZE);
     protoType = vos_be16_to_cpu(protoType);

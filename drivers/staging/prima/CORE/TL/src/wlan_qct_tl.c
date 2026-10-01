@@ -11991,8 +11991,7 @@ VOS_STATUS WLANTL_GetSoftAPStatistics(v_PVOID_t pAdapter, WLANTL_TRANSFER_STA_TY
     v_U8_t i = 0;
     VOS_STATUS  vosStatus = VOS_STATUS_SUCCESS;
     WLANTL_CbType *pTLCb  = VOS_GET_TL_CB(pAdapter);
-    WLANTL_TRANSFER_STA_TYPE statBufferTemp;
-    vos_mem_zero((v_VOID_t *)&statBufferTemp, sizeof(WLANTL_TRANSFER_STA_TYPE));
+    WLANTL_TRANSFER_STA_TYPE *statBufferTemp;
     vos_mem_zero((v_VOID_t *)statsSum, sizeof(WLANTL_TRANSFER_STA_TYPE));
 
 
@@ -12000,6 +11999,10 @@ VOS_STATUS WLANTL_GetSoftAPStatistics(v_PVOID_t pAdapter, WLANTL_TRANSFER_STA_TY
     {
        return VOS_STATUS_E_FAULT;
     } 
+
+    statBufferTemp = vos_mem_malloc(sizeof(*statBufferTemp));
+    if (NULL == statBufferTemp)
+        return VOS_STATUS_E_NOMEM;
 
     // Sum up all the statistics for stations of Soft AP from TL
     for (i = 0; i < WLAN_MAX_STA_COUNT; i++)
@@ -12010,34 +12013,42 @@ VOS_STATUS WLANTL_GetSoftAPStatistics(v_PVOID_t pAdapter, WLANTL_TRANSFER_STA_TY
         }
         if (pTLCb->atlSTAClients[i]->wSTADesc.wSTAType == WLAN_STA_SOFTAP)
         {
-           vosStatus = WLANTL_GetStatistics(pAdapter, &statBufferTemp, i);// Can include staId 1 because statistics not collected for it
+           vosStatus = WLANTL_GetStatistics(pAdapter, statBufferTemp, i);// Can include staId 1 because statistics not collected for it
 
            if (!VOS_IS_STATUS_SUCCESS(vosStatus))
-                return VOS_STATUS_E_FAULT;
+           {
+                vosStatus = VOS_STATUS_E_FAULT;
+                goto free_statistics;
+            }
 
             // Add to the counters
-           statsSum->txUCFcnt += statBufferTemp.txUCFcnt;
-           statsSum->txMCFcnt += statBufferTemp.txMCFcnt;
-           statsSum->txBCFcnt += statBufferTemp.txBCFcnt;
-           statsSum->txUCBcnt += statBufferTemp.txUCBcnt;
-           statsSum->txMCBcnt += statBufferTemp.txMCBcnt;
-           statsSum->txBCBcnt += statBufferTemp.txBCBcnt;
-           statsSum->rxUCFcnt += statBufferTemp.rxUCFcnt;
-           statsSum->rxMCFcnt += statBufferTemp.rxMCFcnt;
-           statsSum->rxBCFcnt += statBufferTemp.rxBCFcnt;
-           statsSum->rxUCBcnt += statBufferTemp.rxUCBcnt;
-           statsSum->rxMCBcnt += statBufferTemp.rxMCBcnt;
-           statsSum->rxBCBcnt += statBufferTemp.rxBCBcnt;
+           statsSum->txUCFcnt += statBufferTemp->txUCFcnt;
+           statsSum->txMCFcnt += statBufferTemp->txMCFcnt;
+           statsSum->txBCFcnt += statBufferTemp->txBCFcnt;
+           statsSum->txUCBcnt += statBufferTemp->txUCBcnt;
+           statsSum->txMCBcnt += statBufferTemp->txMCBcnt;
+           statsSum->txBCBcnt += statBufferTemp->txBCBcnt;
+           statsSum->rxUCFcnt += statBufferTemp->rxUCFcnt;
+           statsSum->rxMCFcnt += statBufferTemp->rxMCFcnt;
+           statsSum->rxBCFcnt += statBufferTemp->rxBCFcnt;
+           statsSum->rxUCBcnt += statBufferTemp->rxUCBcnt;
+           statsSum->rxMCBcnt += statBufferTemp->rxMCBcnt;
+           statsSum->rxBCBcnt += statBufferTemp->rxBCBcnt;
 
            if (bReset)
            {
               vosStatus = WLANTL_ResetStatistics(pAdapter, i);
               if (!VOS_IS_STATUS_SUCCESS(vosStatus))
-                return VOS_STATUS_E_FAULT;               
+              {
+                 vosStatus = VOS_STATUS_E_FAULT;
+                 goto free_statistics;
+              }
           }
         }
     }
 
+free_statistics:
+    vos_mem_free(statBufferTemp);
     return vosStatus;
 }
 #ifdef FEATURE_WLAN_TDLS_INTERNAL

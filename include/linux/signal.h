@@ -75,19 +75,12 @@ static inline int sigfindinword(unsigned long word)
 
 static inline int sigisemptyset(sigset_t *set)
 {
-	extern void _NSIG_WORDS_is_unsupported_size(void);
-	switch (_NSIG_WORDS) {
-	case 4:
-		return (set->sig[3] | set->sig[2] |
-			set->sig[1] | set->sig[0]) == 0;
-	case 2:
-		return (set->sig[1] | set->sig[0]) == 0;
-	case 1:
-		return set->sig[0] == 0;
-	default:
-		_NSIG_WORDS_is_unsupported_size();
-		return 0;
-	}
+	unsigned long bits = 0;
+	unsigned int word;
+
+	for (word = 0; word < _NSIG_WORDS; word++)
+		bits |= set->sig[word];
+	return bits == 0;
 }
 
 #define sigmask(sig)	(1UL << ((sig) - 1))
@@ -98,25 +91,9 @@ static inline int sigisemptyset(sigset_t *set)
 #define _SIG_SET_BINOP(name, op)					\
 static inline void name(sigset_t *r, const sigset_t *a, const sigset_t *b) \
 {									\
-	extern void _NSIG_WORDS_is_unsupported_size(void);		\
-	unsigned long a0, a1, a2, a3, b0, b1, b2, b3;			\
-									\
-	switch (_NSIG_WORDS) {						\
-	    case 4:							\
-		a3 = a->sig[3]; a2 = a->sig[2];				\
-		b3 = b->sig[3]; b2 = b->sig[2];				\
-		r->sig[3] = op(a3, b3);					\
-		r->sig[2] = op(a2, b2);					\
-	    case 2:							\
-		a1 = a->sig[1]; b1 = b->sig[1];				\
-		r->sig[1] = op(a1, b1);					\
-	    case 1:							\
-		a0 = a->sig[0]; b0 = b->sig[0];				\
-		r->sig[0] = op(a0, b0);					\
-		break;							\
-	    default:							\
-		_NSIG_WORDS_is_unsupported_size();			\
-	}								\
+	unsigned int word;						\
+	for (word = 0; word < _NSIG_WORDS; word++)			\
+		r->sig[word] = op(a->sig[word], b->sig[word]);	\
 }
 
 #define _sig_or(x,y)	((x) | (y))
@@ -136,17 +113,9 @@ _SIG_SET_BINOP(sigandnsets, _sig_andn)
 #define _SIG_SET_OP(name, op)						\
 static inline void name(sigset_t *set)					\
 {									\
-	extern void _NSIG_WORDS_is_unsupported_size(void);		\
-									\
-	switch (_NSIG_WORDS) {						\
-	    case 4: set->sig[3] = op(set->sig[3]);			\
-		    set->sig[2] = op(set->sig[2]);			\
-	    case 2: set->sig[1] = op(set->sig[1]);			\
-	    case 1: set->sig[0] = op(set->sig[0]);			\
-		    break;						\
-	    default:							\
-		_NSIG_WORDS_is_unsupported_size();			\
-	}								\
+	unsigned int word;						\
+	for (word = 0; word < _NSIG_WORDS; word++)			\
+		set->sig[word] = op(set->sig[word]);		\
 }
 
 #define _sig_not(x)	(~(x))

@@ -186,7 +186,8 @@ static void close_delayed_work(struct work_struct *work)
 	
 	if (codec_dai->pop_wait == 1) {
 	  codec_dai->pop_wait = 0;
-		snd_soc_dapm_stream_event(rtd, SNDRV_PCM_STREAM_PLAYBACK,
+		snd_soc_dapm_stream_event(rtd,
+			codec_dai->driver->playback.stream_name,
 					  SND_SOC_DAPM_STREAM_STOP);
 	}
 

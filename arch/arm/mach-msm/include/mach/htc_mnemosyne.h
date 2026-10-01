@@ -34,17 +34,17 @@
 #define DECLARE_MNEMOSYNE_ARRAY(name, number)	ASM_ENUM_ARRAY	mnemosyne_##name, number
 
 /* Emulate enum in assembly */
-.SET LAST_ENUM_VALUE, 0
+.set LAST_ENUM_VALUE, 0
 
-.MACRO ASM_ENUM_ARRAY name, number
+.macro ASM_ENUM_ARRAY name, number
 /* Export the offset of an element, we can address by getting base and adding this offset */
-.EQUIV \name, LAST_ENUM_VALUE * MNEMOSYNE_ELEMENT_SIZE
-.SET LAST_ENUM_VALUE, LAST_ENUM_VALUE + \number
-.ENDM
+.equiv \name, LAST_ENUM_VALUE * MNEMOSYNE_ELEMENT_SIZE
+.set LAST_ENUM_VALUE, LAST_ENUM_VALUE + \number
+.endm
 
-.MACRO ASM_ENUM name
+.macro ASM_ENUM name
 ASM_ENUM_ARRAY \name, 1
-.ENDM
+.endm
 
 #define DECLARE_MNEMOSYNE_END()
 

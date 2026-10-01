@@ -39,7 +39,7 @@ struct apr_hdr {
 	uint16_t dest_port;
 	uint32_t token;
 	uint32_t opcode;
-};
+} __packed;
 
 #define APR_HDR_LEN(hdr_len) ((hdr_len)/4)
 #define APR_PKT_SIZE(hdr_len, payload_len) ((hdr_len) + (payload_len))

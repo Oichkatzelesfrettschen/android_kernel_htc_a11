@@ -405,7 +405,6 @@ struct usb_diag_ch *usb_diag_open(const char *name, void *priv,
 		void (*notify)(void *, unsigned, struct diag_request *))
 {
 	struct usb_diag_ch *ch;
-	struct diag_context *ctxt;
 	unsigned long flags;
 	int found = 0;
 #if DIAG_XPST
@@ -429,11 +428,14 @@ struct usb_diag_ch *usb_diag_open(const char *name, void *priv,
 			return ERR_PTR(-ENOMEM);
 #if DIAG_XPST
 		if (!xpst_initialized) {
+			struct diag_context *ctxt = get_modem_ctxt();
 			misc_register(&htc_diag_device_fops);
 			
 			misc_register(&diag2arm9_device);
-			ctxt->usb_in_count = ctxt->usb_out_count = 0;
-			ctxt->tx_count = ctxt->rx_count = 0;
+			if (ctxt) {
+				ctxt->usb_in_count = ctxt->usb_out_count = 0;
+				ctxt->tx_count = ctxt->rx_count = 0;
+			}
 			xpst_initialized = 1;
 		}
 #endif

@@ -1502,8 +1502,8 @@ drop:
 			if (driver->smd_data[i].ch)
 				queue_work(driver->diag_wq,
 				&(driver->smd_data[i].diag_read_smd_work));
-				queue_work(driver->smd_data[i].wq,
-				&(driver->smd_data[i].diag_read_smd_work));
+			queue_work(driver->smd_data[i].wq,
+			&(driver->smd_data[i].diag_read_smd_work));
 		}
 #ifdef CONFIG_DIAG_SDIO_PIPE
 		if (driver->sdio_ch)
@@ -1654,8 +1654,8 @@ dropd:
 			if (driver->smd_data[i].ch)
 				queue_work(driver->diag_wq,
 				&(driver->smd_data[i].diag_read_smd_work));
-				queue_work(driver->smd_data[i].wq,
-				&(driver->smd_data[i].diag_read_smd_work));
+			queue_work(driver->smd_data[i].wq,
+			&(driver->smd_data[i].diag_read_smd_work));
 		}
 #ifdef CONFIG_DIAG_SDIO_PIPE
 		if (driver->sdio_ch)
@@ -1755,7 +1755,7 @@ dropd:
 		for (i = 0; i < NUM_SMD_DATA_CHANNELS; i++) {
 			if (driver->smd_data[i].ch)
 				queue_work(driver->smd_data[i].wq,
-				&(driver->smd_data[i].diag_read_smd_work));
+			&(driver->smd_data[i].diag_read_smd_work));
 		}
 #ifdef CONFIG_DIAG_SDIO_PIPE
 		if (driver->sdio_ch)

@@ -44,7 +44,9 @@
 #define unreachable() __builtin_unreachable()
 
 /* Mark a function definition as prohibited from being cloned. */
+#ifndef __clang__
 #define __noclone	__attribute__((__noclone__))
+#endif
 
 #endif
 #endif

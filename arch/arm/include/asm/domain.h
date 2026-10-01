@@ -69,7 +69,7 @@
 	do {						\
 	__asm__ __volatile__(				\
 	"mcr	p15, 0, %0, c3, c0	@ set domain"	\
-	  : : "r" (x));					\
+	  : : "r" (x) : "memory");			\
 	isb();						\
 	} while (0)
 

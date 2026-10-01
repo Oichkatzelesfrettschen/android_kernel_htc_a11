@@ -259,7 +259,8 @@ void extract_dci_pkt_rsp(struct diag_smd_info *smd_info, unsigned char *buf)
 void extract_dci_events(unsigned char *buf)
 {
 	uint16_t event_id, event_id_packet, length, temp_len;
-	uint8_t *event_mask_ptr, byte_mask, payload_len, payload_len_field;
+	uint8_t *event_mask_ptr, byte_mask, payload_len_field;
+	unsigned int payload_len;
 	uint8_t timestamp[8], bit_index, timestamp_len;
 	uint8_t event_data[MAX_EVENT_SIZE];
 	unsigned int byte_index, total_event_len, i;
@@ -1306,7 +1307,7 @@ void diag_dci_exit(void)
 	destroy_workqueue(driver->diag_dci_wq);
 }
 
-int diag_dci_clear_log_mask()
+int diag_dci_clear_log_mask(void)
 {
 	int i, j, k, err = DIAG_DCI_NO_ERROR;
 	uint8_t *log_mask_ptr, *update_ptr;
@@ -1343,7 +1344,7 @@ int diag_dci_clear_log_mask()
 	return err;
 }
 
-int diag_dci_clear_event_mask()
+int diag_dci_clear_event_mask(void)
 {
 	int i, j, err = DIAG_DCI_NO_ERROR;
 	uint8_t *event_mask_ptr, *update_ptr;
@@ -1413,7 +1414,7 @@ int diag_dci_query_event_mask(uint16_t event_id)
 	return 0;
 }
 
-uint8_t diag_dci_get_cumulative_real_time()
+uint8_t diag_dci_get_cumulative_real_time(void)
 {
 	uint8_t real_time = MODE_NONREALTIME, i;
 	for (i = 0; i < MAX_DCI_CLIENTS; i++)

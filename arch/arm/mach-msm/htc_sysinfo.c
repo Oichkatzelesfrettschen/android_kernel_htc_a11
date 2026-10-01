@@ -56,7 +56,7 @@ int get_partition_num_by_name(char *name)
 	struct htc_emmc_partition *ptn = emmc_partitions;
 	int i;
 
-	for (i = 0; i < MSM_MAX_PARTITIONS && ptn->partition_name; i++, ptn++) {
+	for (i = 0; i < MSM_MAX_PARTITIONS && *ptn->partition_name; i++, ptn++) {
 		if (strcmp(ptn->partition_name, name) == 0)
 			return ptn->dev_num;
 	}
@@ -81,7 +81,7 @@ int htc_emmc_partition_write(struct file *file, const char *buffer,
 	if (copy_from_user(buf, buffer, 64))
 		return -EFAULT;
 
-	if ((ret = sscanf(buf, "%d %d %16s", &dev_num, &partition_size, partition_name)) != 3) {
+	if ((ret = sscanf(buf, "%d %d %15s", &dev_num, &partition_size, partition_name)) != 3) {
 		pr_info("%s: partition information format error:\
 			%d items input matched. \n", __func__, ret);
 		return -EINVAL;

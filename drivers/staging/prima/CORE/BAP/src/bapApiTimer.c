@@ -106,7 +106,6 @@
  * -------------------------------------------------------------------------*/
 #if 1
 //*BT-AMP packet LLC OUI value*/
-static const v_U8_t WLANBAP_BT_AMP_OUI[] =  {0x00, 0x19, 0x58 };
 
 #endif
 

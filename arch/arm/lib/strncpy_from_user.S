@@ -34,7 +34,7 @@ ENTRY(__strncpy_from_user)
 ENDPROC(__strncpy_from_user)
 
 	.pushsection .fixup,"ax"
-	.align	0
+	.align	2
 9001:	mov	r3, #0
 	strb	r3, [r0, #0]	@ null terminate
 	mov	r0, #-EFAULT

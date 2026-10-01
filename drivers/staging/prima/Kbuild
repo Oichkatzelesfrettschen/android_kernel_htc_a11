@@ -643,7 +643,8 @@ CDEFINES += -DWLAN_OPEN_SOURCE
 endif
 
 # Fix build for GCC 4.7
-EXTRA_CFLAGS += -Wno-maybe-uninitialized -Wno-unused-function
+EXTRA_CFLAGS += $(call cc-disable-warning,maybe-uninitialized)
+EXTRA_CFLAGS += -Wno-unused-function
 
 KBUILD_CPPFLAGS += $(CDEFINES)
 
@@ -651,3 +652,14 @@ KBUILD_CPPFLAGS += $(CDEFINES)
 obj-$(CONFIG_PRIMA_WLAN) += $(MODNAME).o
 obj-$(CONFIG_PRONTO_WLAN) += $(MODNAME).o
 $(MODNAME)-y := $(OBJS)
+
+# Prima firmware interfaces use packed wire records and distinct host/firmware
+# enum types with matching values. Preserve that vendor ABI and its generated
+# statement formatting while retaining errors for other diagnostics.
+EXTRA_CFLAGS += $(call cc-disable-warning,address-of-packed-member)
+EXTRA_CFLAGS += $(call cc-disable-warning,implicit-enum-enum-cast)
+EXTRA_CFLAGS += $(call cc-disable-warning,misleading-indentation)
+EXTRA_CFLAGS += $(call cc-disable-warning,parentheses-equality)
+# dot11f is a generated protocol codec; its uniform presence guards also cover
+# fixed-array fields, whose addresses always exist in the generated records.
+CFLAGS_dot11f.o += $(call cc-disable-warning,pointer-bool-conversion)

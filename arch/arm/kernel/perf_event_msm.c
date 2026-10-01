@@ -463,6 +463,11 @@ static void scorpion_write_l2lpm(u32 val)
 	asm volatile("mcr p15, 3, %0, c15, c2, 0" : : "r" (val));
 }
 
+#ifdef __clang__
+/* Qualcomm Venum PMU selectors use vendor-defined CP10 registers. */
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Winline-asm"
+#endif
 static u32 scorpion_read_vlpm(void)
 {
 	u32 val;
@@ -475,6 +480,9 @@ static void scorpion_write_vlpm(u32 val)
 {
 	asm volatile("mcr p10, 7, %0, c11, c0, 0" : : "r" (val));
 }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 /*
  * The Scorpion processor supports performance monitoring for Venum unit.

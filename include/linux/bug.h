@@ -45,7 +45,15 @@ struct pt_regs;
  * "__build_bug_on_failed".  This error message can be harder to track down
  * though, hence the two different methods.
  */
-#ifndef __OPTIMIZE__
+#if defined(__clang__) && defined(__OPTIMIZE__)
+/* Clang evaluates array bounds before propagating inline arguments. */
+extern void __build_bug_on_failed(void)
+	__compiletime_error("BUILD_BUG_ON failed");
+#define BUILD_BUG_ON(condition) \
+	do { \
+		if (condition) __build_bug_on_failed(); \
+	} while (0)
+#elif !defined(__OPTIMIZE__)
 #define BUILD_BUG_ON(condition) ((void)sizeof(char[1 - 2*!!(condition)]))
 #else
 extern int __build_bug_on_failed;

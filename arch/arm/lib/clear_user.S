@@ -41,14 +41,14 @@ WEAK(__clear_user)
 		strusr	r2, r0, 1, ne, rept=2
 		tst	r1, #1			@ x1 x0 x1 x0 x1 x0 x1
 		it	ne			@ explicit IT needed for the label
-USER(		strnebt	r2, [r0])
+USER(		strbtne	r2, [r0])
 		mov	r0, #0
 		ldmfd	sp!, {r1, pc}
 ENDPROC(__clear_user)
 ENDPROC(__clear_user_std)
 
 		.pushsection .fixup,"ax"
-		.align	0
+		.align	2
 9001:		ldmfd	sp!, {r0, pc}
 		.popsection
 

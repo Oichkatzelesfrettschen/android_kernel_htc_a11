@@ -436,7 +436,7 @@ __und_usr:
 	itet	eq				@ explicit IT needed for the 1f label
 	subeq	r4, r2, #4			@ ARM instr at LR - 4
 	subne	r4, r2, #2			@ Thumb instr at LR - 2
-1:	ldreqt	r0, [r4]
+1:	ldrteq	r0, [r4]
 #ifdef CONFIG_CPU_ENDIAN_BE8
 	reveq	r0, r0				@ little endian instruction
 #endif
@@ -495,9 +495,11 @@ ENDPROC(__und_usr)
  * The out of line fixup for the ldrt above.
  */
 	.pushsection .fixup, "ax"
+	.align	2
 4:	mov	pc, r9
 	.popsection
 	.pushsection __ex_table,"a"
+	.align	2
 	.long	1b, 4b
 #if CONFIG_ARM_THUMB && __LINUX_ARM_ARCH__ >= 6 && CONFIG_CPU_V7
 	.long	2b, 4b
@@ -572,7 +574,7 @@ call_fpe:
 	@ Test if we need to give access to iWMMXt coprocessors
 	ldr	r5, [r10, #TI_FLAGS]
 	rsbs	r7, r8, #(1 << 8)		@ CP 0 or 1 only
-	movcss	r7, r5, lsr #(TIF_USING_IWMMXT + 1)
+	movscs	r7, r5, lsr #(TIF_USING_IWMMXT + 1)
 	bcs	iwmmxt_task_enable
 #endif
  ARM(	add	pc, pc, r8, lsr #6	)
@@ -654,6 +656,7 @@ do_fpe:
  */
 
 	.pushsection .data
+	.align	2
 ENTRY(fp_enter)
 	.word	no_fp
 	.popsection
@@ -890,7 +893,7 @@ __kuser_cmpxchg64:				@ 0xffff0f60
 	smp_dmb	arm
 1:	ldrexd	r0, r1, [r2]			@ load current val
 	eors	r3, r0, r4			@ compare with oldval (1)
-	eoreqs	r3, r1, r5			@ compare with oldval (2)
+	eorseq	r3, r1, r5			@ compare with oldval (2)
 	strexdeq r3, r6, r7, [r2]		@ store newval if eq
 	teqeq	r3, #1				@ success?
 	beq	1b				@ if no then retry
@@ -914,8 +917,8 @@ __kuser_cmpxchg64:				@ 0xffff0f60
 	ldmia	r1, {r6, lr}			@ load new val
 1:	ldmia	r2, {r0, r1}			@ load current val
 	eors	r3, r0, r4			@ compare with oldval (1)
-	eoreqs	r3, r1, r5			@ compare with oldval (2)
-2:	stmeqia	r2, {r6, lr}			@ store newval if eq
+	eorseq	r3, r1, r5			@ compare with oldval (2)
+2:	stmiaeq	r2, {r6, lr}			@ store newval if eq
 	rsbs	r0, r3, #0			@ set return val and C flag
 	ldmfd	sp!, {r4, r5, r6, pc}
 
@@ -929,7 +932,7 @@ kuser_cmpxchg64_fixup:
 	mov	r7, #0xffff0fff
 	sub	r7, r7, #(0xffff0fff - (0xffff0f60 + (1b - __kuser_cmpxchg64)))
 	subs	r8, r4, r7
-	rsbcss	r8, r8, #(2b - 1b)
+	rsbscs	r8, r8, #(2b - 1b)
 	strcs	r7, [sp, #S_PC]
 #if __LINUX_ARM_ARCH__ < 6
 	bcc	kuser_cmpxchg32_fixup
@@ -1000,7 +1003,7 @@ kuser_cmpxchg32_fixup:
 	mov	r7, #0xffff0fff
 	sub	r7, r7, #(0xffff0fff - (0xffff0fc0 + (1b - __kuser_cmpxchg)))
 	subs	r8, r4, r7
-	rsbcss	r8, r8, #(2b - 1b)
+	rsbscs	r8, r8, #(2b - 1b)
 	strcs	r7, [sp, #S_PC]
 	mov	pc, lr
 	.previous
@@ -1246,6 +1249,7 @@ vector_fiq:
 	.equ	vector_fiq_offset, vector_fiq
 
 	.section .vectors, "ax", %progbits
+	.balign 4
 __vectors_start:
 	W(b)	vector_rst
 	W(b)	vector_und
@@ -1257,6 +1261,7 @@ __vectors_start:
 	W(b)	vector_fiq
 
 	.data
+	.align	2
 
 	.globl	cr_alignment
 	.globl	cr_no_alignment

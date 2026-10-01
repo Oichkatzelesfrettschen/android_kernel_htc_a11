@@ -34,7 +34,7 @@ ENTRY(__strnlen_user)
 ENDPROC(__strnlen_user)
 
 	.pushsection .fixup,"ax"
-	.align	0
+	.align	2
 9001:	mov	r0, #0
 	mov	pc, lr
 	.popsection

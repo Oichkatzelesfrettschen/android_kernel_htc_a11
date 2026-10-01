@@ -42,6 +42,8 @@ modules.builtin
 /vmlinux
 /vmlinuz
 /System.map
+/out-clang/
+/out-gcc/
 /Module.markers
 /Module.symvers
 

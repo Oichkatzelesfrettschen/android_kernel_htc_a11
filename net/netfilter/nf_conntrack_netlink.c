@@ -836,7 +836,7 @@ static const struct nla_policy tuple_nla_policy[CTA_TUPLE_MAX+1] = {
 static int
 ctnetlink_parse_tuple(const struct nlattr * const cda[],
 		      struct nf_conntrack_tuple *tuple,
-		      enum ctattr_type type, u_int8_t l3num)
+		      unsigned int type, u_int8_t l3num)
 {
 	struct nlattr *tb[CTA_TUPLE_MAX+1];
 	int err;
@@ -1621,7 +1621,7 @@ ctnetlink_new_conntrack(struct sock *ctnl, struct sk_buff *skb,
 static inline int
 ctnetlink_exp_dump_tuple(struct sk_buff *skb,
 			 const struct nf_conntrack_tuple *tuple,
-			 enum ctattr_expect type)
+			 unsigned int type)
 {
 	struct nlattr *nest_parms;
 

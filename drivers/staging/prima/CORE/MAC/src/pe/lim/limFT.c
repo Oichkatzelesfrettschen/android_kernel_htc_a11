@@ -319,15 +319,6 @@ void limPerformFTPreAuth(tpAniSirGlobal pMac, eHalStatus status, tANI_U32 *data,
 {
     tSirMacAuthFrameBody authFrame;
 
-    if (psessionEntry->is11Rconnection)
-    {
-        // Only 11r assoc has FT IEs.
-        if (pMac->ft.ftPEContext.pFTPreAuthReq->ft_ies == NULL)
-        {
-            PELOGE(limLog( pMac, LOGE, "%s: FTIEs for Auth Req Seq 1 is absent");)
-            return;
-        }
-    }
     if (status != eHAL_STATUS_SUCCESS)
     {
         PELOGE(limLog( pMac, LOGE, "%s: Change channel not successful for FT pre-auth");)

@@ -10,7 +10,14 @@
 #
 # Copyright (C) 1995-2001 by Russell King
 
-LDFLAGS_vmlinux	:=-p --no-undefined -X
+LDFLAGS_vmlinux	:= --no-undefined -X
+ifeq ($(LLVM),1)
+# Empty built-in objects still need an explicit ARM linker emulation.
+LDFLAGS += -m armelf_linux_eabi
+endif
+ifneq ($(LLVM),1)
+LDFLAGS_vmlinux	+= -p
+endif
 ifeq ($(CONFIG_CPU_ENDIAN_BE8),y)
 LDFLAGS_vmlinux	+= --be8
 endif
@@ -34,7 +41,11 @@ MMUEXT		:= -nommu
 endif
 
 ifeq ($(CONFIG_FRAME_POINTER),y)
-KBUILD_CFLAGS	+=-fno-omit-frame-pointer -mapcs -mno-sched-prolog
+KBUILD_CFLAGS	+=-fno-omit-frame-pointer
+KBUILD_CFLAGS	+=$(call cc-option,-mapcs) $(call cc-option,-mno-sched-prolog)
+ifeq ($(LLVM),1)
+KBUILD_CFLAGS	+= -mframe-chain=all
+endif
 endif
 
 ifeq ($(CONFIG_CC_STACKPROTECTOR),y)
@@ -99,9 +110,14 @@ tune-$(CONFIG_CPU_V6)		:=$(call cc-option,-mtune=arm1136j-s,-mtune=strongarm)
 tune-$(CONFIG_CPU_V6K)		:=$(call cc-option,-mtune=arm1136j-s,-mtune=strongarm)
 
 ifeq ($(CONFIG_AEABI),y)
-CFLAGS_ABI	:=-mabi=aapcs-linux -mno-thumb-interwork
+CFLAGS_ABI	:=-mabi=aapcs-linux $(call cc-option,-mno-thumb-interwork)
 else
 CFLAGS_ABI	:=$(call cc-option,-mapcs-32,-mabi=apcs-gnu) $(call cc-option,-mno-thumb-interwork,)
+endif
+
+ifeq ($(LLVM),1)
+# Match the GNU ARM EABI attributes consumed by the module loader.
+CFLAGS_ABI	+= -meabi gnu
 endif
 
 ifeq ($(CONFIG_ARM_UNWIND),y)
