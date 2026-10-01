@@ -44,6 +44,7 @@ modules.builtin
 /System.map
 /out-clang/
 /out-gcc/
+/base-src/
 /Module.markers
 /Module.symvers
 

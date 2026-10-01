@@ -29,12 +29,23 @@
 
 static struct device_attribute power_supply_attrs[];
 
+static ssize_t power_supply_show_enum(char *buf, int value,
+				     char * const *text, size_t count)
+{
+	if (value < 0)
+		return -ENODATA;
+	if (value >= count)
+		return -EINVAL;
+
+	return sprintf(buf, "%s\n", text[value]);
+}
+
 static ssize_t power_supply_show_property(struct device *dev,
 					  struct device_attribute *attr,
 					  char *buf) {
 	static char *type_text[] = {
 		"Unknown", "Battery", "UPS", "Mains", "USB", "Wireless",
-		"USB_DCP", "USB_CDP", "USB_ACA"
+		"USB_DCP", "USB_CDP", "USB_ACA", "BMS"
 	};
 	static char *status_text[] = {
 		"Unknown", "Charging", "Discharging", "Not charging", "Full"
@@ -79,25 +90,39 @@ static ssize_t power_supply_show_property(struct device *dev,
 		return ret;
 	}
 
+	/* HTC integer properties follow the string properties in the ABI. */
+	if (off == POWER_SUPPLY_PROP_MODEL_NAME ||
+	    off == POWER_SUPPLY_PROP_MANUFACTURER ||
+	    off == POWER_SUPPLY_PROP_SERIAL_NUMBER) {
+		if (!value.strval)
+			return -ENODATA;
+		return sprintf(buf, "%s\n", value.strval);
+	}
+
 	if (value.intval < 0)
 		return -ENODATA;
 
 	if (off == POWER_SUPPLY_PROP_STATUS)
-		return sprintf(buf, "%s\n", status_text[value.intval]);
+		return power_supply_show_enum(buf, value.intval, status_text,
+					      ARRAY_SIZE(status_text));
 	else if (off == POWER_SUPPLY_PROP_CHARGE_TYPE)
-		return sprintf(buf, "%s\n", charge_type[value.intval]);
+		return power_supply_show_enum(buf, value.intval, charge_type,
+					      ARRAY_SIZE(charge_type));
 	else if (off == POWER_SUPPLY_PROP_HEALTH)
-		return sprintf(buf, "%s\n", health_text[value.intval]);
+		return power_supply_show_enum(buf, value.intval, health_text,
+					      ARRAY_SIZE(health_text));
 	else if (off == POWER_SUPPLY_PROP_TECHNOLOGY)
-		return sprintf(buf, "%s\n", technology_text[value.intval]);
+		return power_supply_show_enum(buf, value.intval, technology_text,
+					      ARRAY_SIZE(technology_text));
 	else if (off == POWER_SUPPLY_PROP_CAPACITY_LEVEL)
-		return sprintf(buf, "%s\n", capacity_level_text[value.intval]);
+		return power_supply_show_enum(buf, value.intval, capacity_level_text,
+					      ARRAY_SIZE(capacity_level_text));
 	else if (off == POWER_SUPPLY_PROP_TYPE)
-		return sprintf(buf, "%s\n", type_text[value.intval]);
+		return power_supply_show_enum(buf, value.intval, type_text,
+					      ARRAY_SIZE(type_text));
 	else if (off == POWER_SUPPLY_PROP_SCOPE)
-		return sprintf(buf, "%s\n", scope_text[value.intval]);
-	else if (off >= POWER_SUPPLY_PROP_MODEL_NAME)
-		return sprintf(buf, "%s\n", value.strval);
+		return power_supply_show_enum(buf, value.intval, scope_text,
+					      ARRAY_SIZE(scope_text));
 
 	return sprintf(buf, "%d\n", value.intval);
 }
@@ -183,6 +208,8 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(model_name),
 	POWER_SUPPLY_ATTR(manufacturer),
 	POWER_SUPPLY_ATTR(serial_number),
+	POWER_SUPPLY_ATTR(overload),
+	POWER_SUPPLY_ATTR(usb_overheat),
 };
 
 static struct attribute *
@@ -228,6 +255,9 @@ static const struct attribute_group *power_supply_attr_groups[] = {
 void power_supply_init_attrs(struct device_type *dev_type)
 {
 	int i;
+
+	BUILD_BUG_ON(ARRAY_SIZE(power_supply_attrs) !=
+		     POWER_SUPPLY_PROP_USB_OVERHEAT + 1);
 
 	dev_type->groups = power_supply_attr_groups;
 
@@ -279,8 +309,13 @@ int power_supply_uevent(struct device *dev, struct kobj_uevent_env *env)
 	for (j = 0; j < psy->num_properties; j++) {
 		struct device_attribute *attr;
 		char *line;
+		unsigned int property = psy->properties[j];
 
-		attr = &power_supply_attrs[psy->properties[j]];
+		if (property >= ARRAY_SIZE(power_supply_attrs)) {
+			ret = -EINVAL;
+			goto out;
+		}
+		attr = &power_supply_attrs[property];
 
 		ret = power_supply_show_property(dev, attr, prop_buf);
 		if (ret == -ENODEV || ret == -ENODATA) {

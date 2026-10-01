@@ -15,6 +15,20 @@ prefix. Set HOST_CLANG to prebuilts/clang/host/linux-x86/clang-r383902b1/bin/cla
 and FLEX to prebuilts/build-tools/linux-x86/bin/flex in that tree.
 Keep CONFIG_CC_OPTIMIZE_FOR_SIZE=y in both output configurations.
 
+CONFIG_ARM_ASM_UNIFIED defaults to y so KBUILD_AFLAGS' pre-included
+asm/unified.h selects unified syntax for hand-written assembly. Inline
+__range_ok() and arch_read_lock() invoke ASM_UNIFIED() for their conditional
+flag-setting instructions. The assembler macro switches syntax for one
+instruction, then restores divided syntax for GCC ARM or unified syntax for
+Clang and Thumb. Each invocation preserves GCC's inline-asm instruction count.
+Compiler-generated GCC assembly keeps its original syntax mode.
+
+Empty output asm statements that initialize fixed stack-pointer variables
+belong only to Clang. GCC reads those fixed registers directly; presenting
+the stack pointer as an empty asm output can introduce writes to sp.
+Typecheck dummy initializers also belong only to Clang: GCC's original
+declaration-only checks preserve its optimizer input and generated code.
+
   make O=out-clang ARCH=arm LLVM=1 CROSS_COMPILE="$GCC_PREFIX" cyanogenmod_a11ul_defconfig
   make -k -j16 O=out-clang ARCH=arm LLVM=1 CROSS_COMPILE="$GCC_PREFIX" \
     HOSTCC="$HOST_CLANG" HOSTCXX="${HOST_CLANG}++" \
@@ -28,8 +42,9 @@ Keep CONFIG_CC_OPTIMIZE_FOR_SIZE=y in both output configurations.
   wc -c out-gcc/arch/arm/boot/zImage out-clang/arch/arm/boot/zImage
 
 Compiler-option probes reject unsupported options with warnings treated as
-errors. Freestanding compilation prevents Clang from substituting hosted C
-library entry points for the kernel's runtime operations.
+errors. LLVM=1 selects GNU89 and freestanding compilation for Clang, preventing
+hosted C library substitutions. GCC retains its original language and builtin
+options.
 Host compilation excludes linker-selection flags; HOSTLDFLAGS selects
 LLD at link time. Compiler diagnostics remain enabled. Prima's firmware ABI
 and generated-source allowances are scoped in its Kbuild, with capability

@@ -1459,7 +1459,9 @@ int __mmc_claim_host(struct mmc_host *host, atomic_t *abort)
 	       int loop, urc = 0;
 	       struct stackframe frame;
 	       register unsigned long current_sp asm ("sp");
+#ifdef __clang__
 	       asm ("" : "=r" (current_sp));
+#endif
 	       frame.fp = (unsigned long)__builtin_frame_address(0);
 	       frame.sp = current_sp;
 	       frame.lr = (unsigned long)__builtin_return_address(0);
@@ -1522,7 +1524,9 @@ void mmc_release_host(struct mmc_host *host)
 	       int loop, urc = 0;
 	       struct stackframe frame;
 	       register unsigned long current_sp asm ("sp");
+#ifdef __clang__
 	       asm ("" : "=r" (current_sp));
+#endif
 	       frame.fp = (unsigned long)__builtin_frame_address(0);
 	       frame.sp = current_sp;
 	       frame.lr = (unsigned long)__builtin_return_address(0);

@@ -94,7 +94,9 @@ static inline struct thread_info *current_thread_info(void) __attribute_const__;
 static inline struct thread_info *current_thread_info(void)
 {
 	register unsigned long sp asm ("sp");
+#ifdef __clang__
 	asm ("" : "=r" (sp));
+#endif
 	return (struct thread_info *)(sp & ~(THREAD_SIZE - 1));
 }
 
