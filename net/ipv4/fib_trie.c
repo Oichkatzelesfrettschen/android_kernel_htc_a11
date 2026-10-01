@@ -174,7 +174,9 @@ struct log_rbuff
 	spinlock_t lock;
 };
 
-static struct log_rbuff fib_buf;
+static struct log_rbuff fib_buf = {
+	.lock = __SPIN_LOCK_UNLOCKED(fib_buf.lock),
+};
 
 static inline void memcpy_to_buffer( void *HexRaw, int size )
 {
@@ -214,7 +216,7 @@ void log_to_rbuf( const char * fmt, ...)
 	char *cur = tmp;
 	va_list args;
 
-	t = cpu_clock(smp_processor_id());
+	t = local_clock();
 	nanosec_rem = do_div(t, 1000000000);
 
 	cur += sprintf( cur, "[%5lu.%06lu] ", (unsigned long) t, nanosec_rem / 1000 );
