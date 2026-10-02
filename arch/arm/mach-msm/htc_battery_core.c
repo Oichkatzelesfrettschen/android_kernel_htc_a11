@@ -114,6 +114,8 @@ static enum power_supply_property htc_battery_properties[] = {
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_TECHNOLOGY,
 	POWER_SUPPLY_PROP_CAPACITY,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_OVERLOAD,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_MAX,
 	POWER_SUPPLY_PROP_VOLTAGE_MIN,
@@ -771,6 +773,18 @@ static int htc_battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CAPACITY:
 		mutex_lock(&battery_core_info.info_lock);
 		val->intval = battery_core_info.rep.level;
+		mutex_unlock(&battery_core_info.info_lock);
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		/* rep.batt_vol is in mV; the power_supply class reports uV. */
+		mutex_lock(&battery_core_info.info_lock);
+		val->intval = battery_core_info.rep.batt_vol * 1000;
+		mutex_unlock(&battery_core_info.info_lock);
+		break;
+	case POWER_SUPPLY_PROP_TEMP:
+		/* rep.batt_temp and the power_supply class both use 0.1 degC. */
+		mutex_lock(&battery_core_info.info_lock);
+		val->intval = battery_core_info.rep.batt_temp;
 		mutex_unlock(&battery_core_info.info_lock);
 		break;
 	case POWER_SUPPLY_PROP_OVERLOAD:
