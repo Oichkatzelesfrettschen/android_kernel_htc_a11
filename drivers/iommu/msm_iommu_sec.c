@@ -123,14 +123,30 @@ static int msm_iommu_reg_dump_to_regs(
 	struct msm_scm_fault_regs_dump *dump, int cb_num)
 {
 	int i, j, ret = 0;
-	const uint32_t nvals = (dump->dump_size / sizeof(uint32_t));
-	uint32_t *it = (uint32_t *) dump->dump_data;
-	const uint32_t * const end = ((uint32_t *) dump) + nvals;
+	uint32_t payload_bytes;
+	uint32_t pair_count;
+	const u8 *data = (const u8 *)dump +
+			 offsetof(struct msm_scm_fault_regs_dump, dump_data);
 
-	for (i = 1; it < end; it += 2, i += 2) {
-		uint32_t addr	= *it;
-		uint32_t val	= *(it + 1);
+	if (dump->dump_size < sizeof(dump->dump_size)) {
+		pr_err("Invalid secure CB dump size: %u\n", dump->dump_size);
+		return 1;
+	}
+	payload_bytes = dump->dump_size - sizeof(dump->dump_size);
+	if (payload_bytes > sizeof(dump->dump_data) ||
+	    payload_bytes % (2 * sizeof(uint32_t))) {
+		pr_err("Invalid secure CB dump payload: %u\n", payload_bytes);
+		return 1;
+	}
+	pair_count = payload_bytes / (2 * sizeof(uint32_t));
+
+	for (i = 0; i < pair_count; i++) {
+		uint32_t addr;
+		uint32_t val;
 		struct msm_iommu_context_reg *reg = NULL;
+
+		memcpy(&addr, data + i * 2 * sizeof(addr), sizeof(addr));
+		memcpy(&val, data + (i * 2 + 1) * sizeof(val), sizeof(val));
 
 		for (j = 0; j < MAX_DUMP_REGS; ++j) {
 			if (dump_regs_tbl[j].key ==
@@ -156,12 +172,6 @@ static int msm_iommu_reg_dump_to_regs(
 		reg->valid = true;
 	}
 
-	if (i != nvals) {
-		pr_err("Invalid dump! %d != %d\n", i, nvals);
-		ret = 1;
-		goto out;
-	}
-
 	for (i = 0; i < MAX_DUMP_REGS; ++i) {
 		if (!ctx_regs[i].valid) {
 			if (dump_regs_tbl[i].must_be_present) {
@@ -174,7 +184,6 @@ static int msm_iommu_reg_dump_to_regs(
 		}
 	}
 
-out:
 	return ret;
 }
 

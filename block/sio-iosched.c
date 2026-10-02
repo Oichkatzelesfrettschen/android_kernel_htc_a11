@@ -29,6 +29,7 @@ static const int sync_write_expire = 2 * HZ;	/* max time before a sync write is 
 static const int async_read_expire  =  4 * HZ;	/* ditto for async, these limits are SOFT! */
 static const int async_write_expire = 16 * HZ;	/* ditto for async, these limits are SOFT! */
 
+static const int writes_starved = 2;		/* max times reads can starve a write */
 static const int fifo_batch     = 8;		/* # of sequential requests treated as one
 						   by the above parameters. For throughput. */
 
@@ -259,6 +260,8 @@ sio_init_queue(struct request_queue *q)
 
 	/* Initialize data */
 	sd->batched = 0;
+	sd->starved = 0;
+	sd->writes_starved = writes_starved;
 	sd->fifo_expire[SYNC][READ] = sync_read_expire;
 	sd->fifo_expire[SYNC][WRITE] = sync_write_expire;
 	sd->fifo_expire[ASYNC][READ] = async_read_expire;

@@ -266,6 +266,8 @@ static int rangetr_cmp(struct hashtab *h, const void *k1, const void *k2)
 	return v;
 }
 
+static int role_destroy(void *key, void *datum, void *p);
+
 /*
  * Initialize a policy database structure.
  */
@@ -293,6 +295,7 @@ static int policydb_init(struct policydb *p)
 	if (rc)
 		goto out;
 
+	rc = -ENOMEM;
 	p->filename_trans = hashtab_create(filenametr_hash, filenametr_cmp, (1 << 10));
 	if (!p->filename_trans)
 		goto out;
@@ -307,10 +310,14 @@ static int policydb_init(struct policydb *p)
 
 	return 0;
 out:
+	hashtab_map(p->p_roles.table, role_destroy, NULL);
+	cond_policydb_destroy(p);
+	avtab_destroy(&p->te_avtab);
 	hashtab_destroy(p->filename_trans);
 	hashtab_destroy(p->range_tr);
 	for (i = 0; i < SYM_NUM; i++)
 		hashtab_destroy(p->symtab[i].table);
+	memset(p, 0, sizeof(*p));
 	return rc;
 }
 

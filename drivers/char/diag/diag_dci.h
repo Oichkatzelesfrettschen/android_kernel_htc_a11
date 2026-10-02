@@ -124,7 +124,7 @@ int diag_dci_query_log_mask(uint16_t log_code);
 void update_dci_cumulative_event_mask(int offset, uint8_t byte_mask);
 void clear_client_dci_cumulative_event_mask(int client_index);
 int diag_send_dci_event_mask(struct diag_smd_info *smd_info);
-void extract_dci_events(unsigned char *buf);
+void extract_dci_events(unsigned char *buf, int len);
 void create_dci_event_mask_tbl(unsigned char *tbl_buf);
 int diag_dci_clear_event_mask(void);
 int diag_dci_query_event_mask(uint16_t event_id);
