@@ -16,6 +16,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/string.h>
 #include <linux/err.h>
 #include <linux/power_supply.h>
 #include <linux/platform_device.h>
@@ -678,40 +679,88 @@ static struct device_attribute htc_battery_rt_attrs[] = {
 };
 
 
+/*
+ * The power_supply class creates one node per htc_battery_properties entry
+ * on the battery supply. An HTC attribute of the same name reports the same
+ * quantity (usb_overheat reads rep.usb_overheat, voltage_now reads uV), and
+ * creating it fails with -EEXIST, so it is left to the class. The attribute
+ * arrays keep their entries because htc_battery_show_property() and
+ * htc_battery_rt_attr_show() select the reading by array index.
+ */
+static bool htc_battery_attr_is_class_node(const struct device_attribute *attr)
+{
+	int p;
+
+	for (p = 0; p < ARRAY_SIZE(htc_battery_properties); p++) {
+		if (htc_battery_properties[p] == POWER_SUPPLY_PROP_USB_OVERHEAT &&
+		    !strcmp(attr->attr.name, "usb_overheat"))
+			return true;
+		if (htc_battery_properties[p] == POWER_SUPPLY_PROP_VOLTAGE_NOW &&
+		    !strcmp(attr->attr.name, "voltage_now"))
+			return true;
+	}
+	return false;
+}
+
+static int htc_battery_create_attr_array(struct device *dev,
+					 struct device_attribute *attrs,
+					 int count)
+{
+	int i, rc;
+
+	for (i = 0; i < count; i++) {
+		if (htc_battery_attr_is_class_node(&attrs[i]))
+			continue;
+		rc = device_create_file(dev, &attrs[i]);
+		if (rc)
+			goto failed;
+	}
+	return 0;
+
+failed:
+	while (i--)
+		if (!htc_battery_attr_is_class_node(&attrs[i]))
+			device_remove_file(dev, &attrs[i]);
+	return rc;
+}
+
+static void htc_battery_remove_attr_array(struct device *dev,
+					  struct device_attribute *attrs,
+					  int count)
+{
+	int i;
+
+	for (i = 0; i < count; i++)
+		if (!htc_battery_attr_is_class_node(&attrs[i]))
+			device_remove_file(dev, &attrs[i]);
+}
+
 static int htc_battery_create_attrs(struct device *dev)
 {
-	int i = 0, j = 0, k = 0, rc = 0;
+	int rc;
 
-	for (i = 0; i < ARRAY_SIZE(htc_battery_attrs); i++) {
-		rc = device_create_file(dev, &htc_battery_attrs[i]);
-		if (rc)
-			goto htc_attrs_failed;
-	}
-
-	for (j = 0; j < ARRAY_SIZE(htc_set_delta_attrs); j++) {
-		rc = device_create_file(dev, &htc_set_delta_attrs[j]);
-		if (rc)
-			goto htc_delta_attrs_failed;
-	}
-
-	for (k = 0; k < ARRAY_SIZE(htc_battery_rt_attrs); k++) {
-		rc = device_create_file(dev, &htc_battery_rt_attrs[k]);
-		if (rc)
-			goto htc_rt_attrs_failed;
-	}
-
-	goto succeed;
+	rc = htc_battery_create_attr_array(dev, htc_battery_attrs,
+					   ARRAY_SIZE(htc_battery_attrs));
+	if (rc)
+		goto htc_attrs_failed;
+	rc = htc_battery_create_attr_array(dev, htc_set_delta_attrs,
+					   ARRAY_SIZE(htc_set_delta_attrs));
+	if (rc)
+		goto htc_delta_attrs_failed;
+	rc = htc_battery_create_attr_array(dev, htc_battery_rt_attrs,
+					   ARRAY_SIZE(htc_battery_rt_attrs));
+	if (rc)
+		goto htc_rt_attrs_failed;
+	return 0;
 
 htc_rt_attrs_failed:
-	while (k--)
-		device_remove_file(dev, &htc_battery_rt_attrs[k]);
+	htc_battery_remove_attr_array(dev, htc_set_delta_attrs,
+				      ARRAY_SIZE(htc_set_delta_attrs));
 htc_delta_attrs_failed:
-	while (j--)
-		device_remove_file(dev, &htc_set_delta_attrs[j]);
+	htc_battery_remove_attr_array(dev, htc_battery_attrs,
+				      ARRAY_SIZE(htc_battery_attrs));
 htc_attrs_failed:
-	while (i--)
-		device_remove_file(dev, &htc_battery_attrs[i]);
-succeed:
+	BATT_ERR("%s: sysfs attribute creation failed, rc=%d", __func__, rc);
 	return rc;
 }
 
