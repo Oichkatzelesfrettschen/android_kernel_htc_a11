@@ -431,8 +431,8 @@ static int net1080_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 	}
 
 	header = (struct nc_header *) skb->data;
-	hdr_len = le16_to_cpup(&header->hdr_len);
-	packet_len = le16_to_cpup(&header->packet_len);
+	hdr_len = le16_to_cpu(header->hdr_len);
+	packet_len = le16_to_cpu(header->packet_len);
 	if (FRAMED_SIZE(packet_len) > NC_MAX_PACKET) {
 		dev->net->stats.rx_frame_errors++;
 		dbg("packet too big, %d", packet_len);
@@ -470,7 +470,7 @@ static int net1080_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 		nc_ensure_sync(dev);
 		return 0;
 	}
-	if (header->packet_id != get_unaligned(&trailer->packet_id)) {
+	if (header->packet_id != trailer->packet_id) {
 		dev->net->stats.rx_fifo_errors++;
 		dbg("(2+ dropped) rx packet_id mismatch 0x%x 0x%x",
 			le16_to_cpu(header->packet_id),
@@ -537,7 +537,7 @@ encapsulate:
 	if (!((skb->len + sizeof *trailer) & 0x01))
 		*skb_put(skb, 1) = PAD_BYTE;
 	trailer = (struct nc_trailer *) skb_put(skb, sizeof *trailer);
-	put_unaligned(header->packet_id, &trailer->packet_id);
+	trailer->packet_id = header->packet_id;
 #if 0
 	netdev_dbg(dev->net, "frame >tx h %d p %d id %d\n",
 		   header->hdr_len, header->packet_len,

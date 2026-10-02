@@ -305,7 +305,6 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 			V4L2_CID_MPEG_VIDC_VIDEO_STREAM_OUTPUT_PRIMARY,
 		.step = 1,
 		.menu_skip_mask = 0,
-		.step = 1,
 		.qmenu = NULL,
 	},
 	{

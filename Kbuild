@@ -52,10 +52,10 @@ targets += arch/$(SRCARCH)/kernel/asm-offsets.s
 
 # Default sed regexp - multiline due to syntax constraints
 define sed-y
-	"/^->/{s:->#\(.*\):/* \1 */:; \
-	s:^->\([^ ]*\) [\$$#]*\([-0-9]*\) \(.*\):#define \1 \2 /* \3 */:; \
-	s:^->\([^ ]*\) [\$$#]*\([^ ]*\) \(.*\):#define \1 \2 /* \3 */:; \
-	s:->::; p;}"
+	"/^[[:space:]#@]*->/{s:^[[:space:]#@]*->#\(.*\):/* \1 */:; \
+	s:^[[:space:]#@]*->\([^ ]*\) [\$$#]*\([-0-9]*\) \(.*\):#define \1 \2 /* \3 */:; \
+	s:^[[:space:]#@]*->\([^ ]*\) [\$$#]*\([^ ]*\) \(.*\):#define \1 \2 /* \3 */:; \
+	s:^[[:space:]#@]*->::; p;}"
 endef
 
 quiet_cmd_offsets = GEN     $@

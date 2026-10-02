@@ -231,7 +231,7 @@ static void mdss_mdp_cmd_readptr_done(void *arg)
 	struct mdss_mdp_ctl *ctl = arg;
 	struct mdss_mdp_cmd_ctx *ctx = ctl->priv_data;
 	struct mdss_mdp_vsync_handler *tmp;
-	ktime_t vsync_time;
+	ktime_t vsync_time = ktime_get();
 
 	if (!ctx) {
 		pr_err("invalid ctx\n");
@@ -293,7 +293,7 @@ static void mdss_mdp_cmd_pingpong_done(void *arg)
 	struct mdss_mdp_ctl *ctl = arg;
 	struct mdss_mdp_cmd_ctx *ctx = ctl->priv_data;
 	struct mdss_mdp_vsync_handler *tmp;
-	ktime_t vsync_time;
+	ktime_t vsync_time = ktime_get();
 
 	if (!ctx) {
 		pr_err("%s: invalid ctx\n", __func__);

@@ -347,7 +347,7 @@ static ssize_t htc_battery_set_full_level_dis_batt_chg(struct device *dev,
 	return count;
 }
 
-int htc_battery_charger_disable()
+int htc_battery_charger_disable(void)
 {
 	int rc = 0;
 
@@ -362,7 +362,7 @@ int htc_battery_charger_disable()
 	return rc;
 }
 
-int htc_battery_pwrsrc_disable()
+int htc_battery_pwrsrc_disable(void)
 {
 	int rc = 0;
 
@@ -784,8 +784,10 @@ static int htc_battery_get_property(struct power_supply *psy,
 			val->intval = battery_core_info.func.func_get_chg_status(psp);
 			if (val->intval == (-EINVAL))
 				pr_info("%s: function not ready. psp=%d\n", __func__, psp);
-		} else
+		} else {
 			pr_info("%s: function doesn't exist! psp=%d\n", __func__, psp);
+			return -ENODATA;
+		}
 		break;
 	case POWER_SUPPLY_PROP_USB_OVERHEAT:
 		val->intval = battery_core_info.rep.usb_overheat;

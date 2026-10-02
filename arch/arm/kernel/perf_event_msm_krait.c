@@ -278,6 +278,11 @@ static void krait_write_pmresr2(u32 val)
 	asm volatile("mcr p15, 1, %0, c9, c15, 2" : : "r" (val));
 }
 
+#ifdef __clang__
+/* Qualcomm Venum PMU selectors use vendor-defined CP10 registers. */
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Winline-asm"
+#endif
 static u32 krait_read_vmresr0(void)
 {
 	u32 val;
@@ -290,6 +295,9 @@ static void krait_write_vmresr0(u32 val)
 {
 	asm volatile ("mcr p10, 7, %0, c11, c0, 0" : : "r" (val));
 }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 static DEFINE_PER_CPU(u32, venum_orig_val);
 static DEFINE_PER_CPU(u32, fp_orig_val);

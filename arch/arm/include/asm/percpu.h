@@ -31,6 +31,9 @@ static inline unsigned long __my_cpu_offset(void)
 {
 	unsigned long off;
 	register unsigned long *sp asm ("sp");
+#ifdef __clang__
+	asm ("" : "=r" (sp));
+#endif
 
 	/*
 	 * Read TPIDRPRW.

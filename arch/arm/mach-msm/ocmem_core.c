@@ -116,6 +116,7 @@ enum rpm_macro_state {
 
 static int rpm_write(unsigned long val, unsigned id);
 
+#ifndef CONFIG_MSM_OCMEM_POWER_DISABLE
 static inline unsigned hw_macro_state(unsigned region_state)
 {
 	unsigned macro_state;
@@ -136,6 +137,7 @@ static inline unsigned hw_macro_state(unsigned region_state)
 	}
 	return macro_state;
 }
+#endif
 
 static inline unsigned rpm_macro_state(unsigned hw_macro_state)
 {

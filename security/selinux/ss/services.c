@@ -147,7 +147,7 @@ static int selinux_set_mapping(struct policydb *pol,
 		}
 
 		k = 0;
-		while (p_in->perms && p_in->perms[k]) {
+		while (p_in->perms[k]) {
 			
 			if (!*p_in->perms[k]) {
 				k++;

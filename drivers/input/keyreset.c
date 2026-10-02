@@ -225,8 +225,7 @@ static int keyreset_probe(struct platform_device *pdev)
 #ifndef CONFIG_OF
 	struct keyreset_platform_data *pdata = pdev->dev.platform_data;
 #else
-	uint8_t idx = 0;
-	struct keyreset_platform_data *pdata;
+	struct keyreset_platform_data *pdata = pdev->dev.platform_data;
 	pr_info("[KEYRESET] ++%s++", __func__);
 #endif
 	if (!board_build_flag()) {
@@ -234,19 +233,10 @@ static int keyreset_probe(struct platform_device *pdev)
 		return 0;
 	}
 	if (pdev->dev.of_node) {
-		pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
-		if (pdata == NULL)
-			pr_err("[KEYRESET] alloc memory fail");
 		if (keyreset_dt_parser(&pdev->dev)) {
-			while (reset_key_pdata.keys_down[idx] != 0)
-				idx++;
-			pr_info("[KEYRESET] idx=%d ", idx);
-
-			memcpy(pdata->keys_down, &reset_key_pdata.keys_down,
-				sizeof(int)*(idx+1));
+			pdata = &reset_key_pdata;
 		} else {
-			ret = -ENOMEM;
-			goto err_driver_state;
+			return -ENODEV;
 		}
 	}
 
@@ -291,9 +281,6 @@ static int keyreset_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, state);
 	pr_info("[KEYRESET] --%s--", __func__);
 	return 0;
-err_driver_state:
-	kfree(pdata);
-	return ret;
 }
 
 int keyreset_remove(struct platform_device *pdev)
@@ -312,7 +299,6 @@ static const struct of_device_id keyreset_mttable[] = {
 };
 
 struct platform_driver keyreset_driver = {
-	.driver.name = KEYRESET_NAME,
 	.probe = keyreset_probe,
 	.remove = keyreset_remove,
 	.driver = {

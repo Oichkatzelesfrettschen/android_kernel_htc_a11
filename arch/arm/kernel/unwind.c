@@ -409,6 +409,9 @@ void unwind_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 {
 	struct stackframe frame;
 	register unsigned long current_sp asm ("sp");
+#ifdef __clang__
+	asm ("" : "=r" (current_sp));
+#endif
 
 	pr_debug("%s(regs = %p tsk = %p)\n", __func__, regs, tsk);
 

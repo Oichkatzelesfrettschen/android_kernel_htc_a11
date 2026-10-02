@@ -517,11 +517,11 @@ static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 			if (next_event_us < pwr->latency_us)
 				continue;
 
-			if (((next_event_us - pwr->latency_us) < sleep_us)
-					|| (next_event_us < sleep_us)) {
-				next_wakeup_us = next_event_us
-					- pwr->latency_us;
-			}
+		if (((next_event_us - pwr->latency_us) < sleep_us)
+				|| (next_event_us < sleep_us)) {
+			next_wakeup_us = next_event_us
+				- pwr->latency_us;
+		}
 
 		if (next_wakeup_us <= pwr->time_overhead_us)
 			continue;

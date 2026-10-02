@@ -448,6 +448,7 @@ ENDPROC(__enable_mmu)
  */
 	.align	5
 	.pushsection	.idmap.text, "ax"
+	.balign 4
 ENTRY(__turn_mmu_on)
 	mov	r0, r0
 	instr_sync

@@ -1242,7 +1242,7 @@ int diag_process_stm_cmd(unsigned char *buf)
 	return 0;
 }
 
-int diag_apps_responds()
+int diag_apps_responds(void)
 {
 	if (chk_apps_only()) {
 		if (driver->smd_data[MODEM_DATA].ch &&

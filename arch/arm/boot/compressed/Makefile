@@ -126,7 +126,11 @@ KBUILD_CFLAGS = $(subst -pg, , $(ORIG_CFLAGS))
 endif
 
 ccflags-y := -fpic -fno-builtin -I$(obj)
+# The standalone decompressor runs before the kernel initializes its canary.
+ccflags-y += $(call cc-option,-fno-stack-protector)
+ifneq ($(LLVM),1)
 asflags-y := -Wa,-march=all
+endif
 
 # Supply kernel BSS size to the decompressor via a linker symbol.
 KBSS_SZ = $(shell $(CROSS_COMPILE)size $(obj)/../../../../vmlinux | \
@@ -140,7 +144,9 @@ ifeq ($(CONFIG_CPU_ENDIAN_BE8),y)
 LDFLAGS_vmlinux += --be8
 endif
 # ?
+ifneq ($(LLVM),1)
 LDFLAGS_vmlinux += -p
+endif
 # Report unresolved symbol references
 LDFLAGS_vmlinux += --no-undefined
 # Delete all temporary local symbols

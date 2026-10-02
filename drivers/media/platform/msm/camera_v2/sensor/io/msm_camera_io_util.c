@@ -607,11 +607,11 @@ int msm_camera_request_gpio_table(struct gpio *gpio_tbl, uint8_t size,
 		
 			err = gpio_request_one(gpio_tbl[i].gpio,
 				gpio_tbl[i].flags, gpio_tbl[i].label);
-			if (err) {
-				pr_err("%s:%d gpio %d:%s request fails\n",
-					__func__, __LINE__,
-					gpio_tbl[i].gpio, gpio_tbl[i].label);
-			}
+		if (err) {
+			pr_err("%s:%d gpio %d:%s request fails\n",
+				__func__, __LINE__,
+				gpio_tbl[i].gpio, gpio_tbl[i].label);
+		}
 		}
 	} else {
 	    #if 1 

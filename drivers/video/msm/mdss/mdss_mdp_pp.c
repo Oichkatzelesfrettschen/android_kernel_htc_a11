@@ -1106,7 +1106,7 @@ static int pp_dspp_setup(u32 disp_num, struct mdss_mdp_mixer *mixer)
 			  (dither_depth_map[dither_cfg->b_cb_depth] << 2) |
 			  (dither_depth_map[dither_cfg->r_cr_depth] << 4));
 			offset += 0x14;
-			for (i = 0; i << 16; i += 4) {
+			for (i = 0; i < 16; i += 4) {
 				data = dither_matrix[i] |
 					(dither_matrix[i + 1] << 4) |
 					(dither_matrix[i + 2] << 8) |
@@ -3080,7 +3080,7 @@ int mdss_mdp_ad_input(struct msm_fb_data_type *mfd,
 	mutex_lock(&ad->lock);
 	if ((!PP_AD_STATE_IS_INITCFG(ad->state) &&
 			!PP_AD_STS_IS_DIRTY(ad->sts)) &&
-			!input->mode == MDSS_AD_MODE_CALIB) {
+			input->mode != MDSS_AD_MODE_CALIB) {
 		pr_warn("AD not initialized or configured.");
 		ret = -EPERM;
 		goto error;

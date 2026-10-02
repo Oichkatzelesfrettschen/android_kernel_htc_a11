@@ -1309,8 +1309,8 @@ static int ncm_function_bind_config(struct android_usb_function *f,
 		ncm->ethaddr[0], ncm->ethaddr[1], ncm->ethaddr[2],
 		ncm->ethaddr[3], ncm->ethaddr[4], ncm->ethaddr[5]);
 
-    if (c->cdev->gadget)
-        c->cdev->gadget->miMaxMtu = ETH_FRAME_LEN_MAX - ETH_HLEN;
+	if (c->cdev->gadget)
+		c->cdev->gadget->miMaxMtu = ETH_FRAME_LEN_MAX - ETH_HLEN;
 	ret = gether_setup_name(c->cdev->gadget, ncm->ethaddr, "ncm");
 	if (ret) {
 		pr_err("%s: gether setup failed err:%d\n", __func__, ret);
@@ -2647,7 +2647,7 @@ static ssize_t projector_debug_mode_store(
 		if (!test_frame)
 			test_frame = kzalloc(framesize * 2, GFP_KERNEL);
 
-		if (test_frame)
+		if (test_frame) {
 			for (i = 0 ; i < framesize ; i++)
 				if (i < framesize/4)
 					test_frame[i] = 0xF800;
@@ -2657,6 +2657,7 @@ static ssize_t projector_debug_mode_store(
 					test_frame[i] = 0x1F;
 				else
 					test_frame[i] = 0xFFFF;
+		}
 
 		config->debug_mode = value;
 		return size;

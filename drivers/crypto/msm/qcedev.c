@@ -62,12 +62,10 @@ struct qcedev_handle;
 
 struct qcedev_cipher_req {
 	struct ablkcipher_request creq;
-	void *cookie;
 };
 
 struct qcedev_sha_req {
 	struct ahash_request sreq;
-	void *cookie;
 };
 
 struct	qcedev_sha_ctxt {
@@ -90,12 +88,12 @@ struct qcedev_async_req {
 		struct qcedev_cipher_op_req	cipher_op_req;
 		struct qcedev_sha_op_req	sha_op_req;
 	};
+	struct qcedev_handle			*handle;
+	int					err;
 	union{
 		struct qcedev_cipher_req	cipher_req;
 		struct qcedev_sha_req		sha_req;
 	};
-	struct qcedev_handle			*handle;
-	int					err;
 };
 
 static DEFINE_MUTEX(send_cmd_lock);
@@ -437,7 +435,7 @@ static void qcedev_sha_req_cb(void *cookie, unsigned char *digest,
 	uint32_t *auth32 = (uint32_t *)authdata;
 
 	areq = (struct qcedev_sha_req *) cookie;
-	handle = (struct qcedev_handle *) areq->cookie;
+	handle = container_of(areq, struct qcedev_async_req, sha_req)->handle;
 	pdev = handle->cntl;
 
 	if (digest)
@@ -463,7 +461,7 @@ static void qcedev_cipher_req_cb(void *cookie, unsigned char *icv,
 	struct qcedev_async_req *qcedev_areq;
 
 	areq = (struct qcedev_cipher_req *) cookie;
-	handle = (struct qcedev_handle *) areq->cookie;
+	handle = container_of(areq, struct qcedev_async_req, cipher_req)->handle;
 	podev = handle->cntl;
 	qcedev_areq = podev->active_command;
 
@@ -481,7 +479,6 @@ static int start_cipher_req(struct qcedev_control *podev)
 
 	/* start the command on the podev->active_command */
 	qcedev_areq = podev->active_command;
-	qcedev_areq->cipher_req.cookie = qcedev_areq->handle;
 	if (qcedev_areq->cipher_op_req.use_pmem == QCEDEV_USE_PMEM) {
 		pr_err("%s: Use of PMEM is not supported\n", __func__);
 		goto unsupported;
@@ -625,8 +622,6 @@ static int start_sha_req(struct qcedev_control *podev)
 		return -EINVAL;
 		break;
 	};
-
-	qcedev_areq->sha_req.cookie = handle;
 
 	sreq.qce_cb = qcedev_sha_req_cb;
 	if (qcedev_areq->sha_op_req.alg != QCEDEV_ALG_AES_CMAC) {
@@ -1631,7 +1626,7 @@ static int qcedev_check_cipher_key(struct qcedev_cipher_op_req *req,
 			/* if not using HW key make sure key
 			 * length is valid
 			 */
-			if ((req->mode == QCEDEV_AES_MODE_XTS)) {
+			if (req->mode == QCEDEV_AES_MODE_XTS) {
 				if ((req->encklen != QCEDEV_AES_KEY_128*2) &&
 				(req->encklen != QCEDEV_AES_KEY_256*2)) {
 					pr_err("%s: unsupported key size: %d\n",

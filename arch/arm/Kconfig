@@ -1776,6 +1776,7 @@ config THUMB2_AVOID_R_ARM_THM_JUMP11
 
 config ARM_ASM_UNIFIED
 	bool
+	default y
 
 config AEABI
 	bool "Use the ARM EABI to compile the kernel"

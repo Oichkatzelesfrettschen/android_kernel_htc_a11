@@ -110,6 +110,9 @@ void save_stack_trace_tsk(struct task_struct *tsk, struct stack_trace *trace)
 #endif
 	} else {
 		register unsigned long current_sp asm ("sp");
+#ifdef __clang__
+		asm ("" : "=r" (current_sp));
+#endif
 
 		data.no_sched_functions = 0;
 		frame.fp = (unsigned long)__builtin_frame_address(0);

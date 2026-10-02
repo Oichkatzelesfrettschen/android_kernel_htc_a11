@@ -5,9 +5,15 @@
  * Check at compile time that something is of a particular type.
  * Always evaluates to 1 so you may use it easily in comparisons.
  */
+#ifdef __clang__
+#define __typecheck_initializer = { 0 }
+#else
+#define __typecheck_initializer
+#endif
+
 #define typecheck(type,x) \
-({	type __dummy; \
-	typeof(x) __dummy2; \
+({	type __dummy __typecheck_initializer; \
+	typeof(x) __dummy2 __typecheck_initializer; \
 	(void)(&__dummy == &__dummy2); \
 	1; \
 })

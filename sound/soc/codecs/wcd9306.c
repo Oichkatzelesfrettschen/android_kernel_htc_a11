@@ -183,7 +183,6 @@ static const DECLARE_TLV_DB_SCALE(digital_gain, 0, 1, 0);
 static const DECLARE_TLV_DB_SCALE(line_gain, 0, 7, 1);
 static const DECLARE_TLV_DB_SCALE(analog_gain, 0, 25, 1);
 static struct snd_soc_dai_driver tapan_dai[];
-static const DECLARE_TLV_DB_SCALE(aux_pga_gain, 0, 2, 0);
 
 enum {
 	IIR1 = 0,
@@ -5453,7 +5452,7 @@ static void tapan_compute_impedance(s16 *l, s16 *r, uint32_t *zl, uint32_t *zr)
 	*zr = rr;
 }
 
-static const struct wcd9xxx_mbhc_cb mbhc_cb = {
+static const struct wcd9xxx_mbhc_cb mbhc_cb __maybe_unused = {
 	.enable_mux_bias_block = tapan_enable_mux_bias_block,
 	.cfilt_fast_mode = tapan_put_cfilt_fast_mode,
 	.codec_specific_cal = tapan_codec_specific_cal_setup,
@@ -5499,7 +5498,7 @@ static int tapan_device_down(struct wcd9xxx *wcd9xxx)
 	return 0;
 }
 
-static const struct wcd9xxx_mbhc_intr cdc_intr_ids = {
+static const struct wcd9xxx_mbhc_intr cdc_intr_ids __maybe_unused = {
 	.poll_plug_rem = WCD9XXX_IRQ_MBHC_REMOVAL,
 	.shortavg_complete = WCD9XXX_IRQ_MBHC_SHORT_TERM,
 	.potential_button_press = WCD9XXX_IRQ_MBHC_PRESS,
@@ -5976,11 +5975,6 @@ static int __devinit tapan_probe(struct platform_device *pdev)
 	bool is_wcd9306;
 
 	is_wcd9306 = tapan_check_wcd9306(&pdev->dev, false);
-	if (is_wcd9306 < 0) {
-		dev_info(&pdev->dev, "%s: cannot find codec type, default to 9306\n",
-			 __func__);
-		is_wcd9306 = true;
-	}
 	codec_ver = is_wcd9306 ? WCD9306 : WCD9302;
 
 	if (!is_wcd9306) {

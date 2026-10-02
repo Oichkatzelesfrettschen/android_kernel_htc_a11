@@ -51,6 +51,7 @@ ENDPROC(cpu_v7_proc_fin)
  */
 	.align	5
 	.pushsection	.idmap.text, "ax"
+	.align	2
 ENTRY(cpu_v7_reset)
 	mrc	p15, 0, r1, c1, c0, 0		@ ctrl register
 	bic	r1, r1, #0x1			@ ...............m
@@ -316,6 +317,7 @@ __v7_setup_stack:
 	.space	4 * 11				@ 11 registers
 
 	__INITDATA
+	.align	2
 
 	@ define struct processor (see <asm/proc-fns.h> and proc-macros.S)
 	define_processor_functions v7, dabort=v7_early_abort, pabort=v7_pabort, suspend=1
@@ -327,6 +329,7 @@ __v7_setup_stack:
 	.align
 
 	.section ".proc.info.init", #alloc, #execinstr
+	.align	2
 
 	/*
 	 * Standard v7 proc info content

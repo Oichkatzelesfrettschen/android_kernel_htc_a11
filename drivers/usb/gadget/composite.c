@@ -475,7 +475,7 @@ static int bos_desc(struct usb_composite_dev *cdev)
 
 	usb_ext = cdev->req->buf + le16_to_cpu(bos->wTotalLength);
 	bos->bNumDeviceCaps++;
-	le16_add_cpu(&bos->wTotalLength, USB_DT_USB_EXT_CAP_SIZE);
+	bos->wTotalLength = cpu_to_le16(le16_to_cpu(bos->wTotalLength) + USB_DT_USB_EXT_CAP_SIZE);
 	usb_ext->bLength = USB_DT_USB_EXT_CAP_SIZE;
 	usb_ext->bDescriptorType = USB_DT_DEVICE_CAPABILITY;
 	usb_ext->bDevCapabilityType = USB_CAP_TYPE_EXT;
@@ -484,7 +484,7 @@ static int bos_desc(struct usb_composite_dev *cdev)
 	if (gadget_is_superspeed(cdev->gadget)) {
 		ss_cap = cdev->req->buf + le16_to_cpu(bos->wTotalLength);
 		bos->bNumDeviceCaps++;
-		le16_add_cpu(&bos->wTotalLength, USB_DT_USB_SS_CAP_SIZE);
+		bos->wTotalLength = cpu_to_le16(le16_to_cpu(bos->wTotalLength) + USB_DT_USB_SS_CAP_SIZE);
 		ss_cap->bLength = USB_DT_USB_SS_CAP_SIZE;
 		ss_cap->bDescriptorType = USB_DT_DEVICE_CAPABILITY;
 		ss_cap->bDevCapabilityType = USB_SS_CAP_TYPE;

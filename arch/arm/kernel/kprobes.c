@@ -530,7 +530,8 @@ void __kprobes jprobe_return(void)
 #else
 		"ldr	r0, [sp, %4]		\n\t"
 		"msr	cpsr_cxsf, r0		\n\t"
-		"ldmia	sp, {r0 - pc}		\n\t"
+		/* Restore the full probe context, including LR and PC. */
+		".inst	0xe89dffff		\n\t"
 #endif
 		:
 		: "r" (kcb->jprobe_saved_regs.ARM_sp),
@@ -605,7 +606,7 @@ static struct undef_hook kprobes_arm_break_hook = {
 
 #endif /* !CONFIG_THUMB2_KERNEL */
 
-int __init arch_init_kprobes()
+int __init arch_init_kprobes(void)
 {
 	arm_kprobe_decode_init();
 #ifdef CONFIG_THUMB2_KERNEL

@@ -50,7 +50,7 @@ struct dci_pkt_req_entry_t {
 	int uid;
 	int tag;
 	struct list_head track;
-} __packed;
+};
 
 struct diag_dci_client_tbl {
 	struct task_struct *client;

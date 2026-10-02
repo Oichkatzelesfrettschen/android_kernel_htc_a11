@@ -20,6 +20,23 @@
 #ifndef __ASM_UNIFIED_H
 #define __ASM_UNIFIED_H
 
+#ifndef __ASSEMBLY__
+/* Keep syntax directives outside GCC's inline-asm instruction count. */
+#if defined(CONFIG_THUMB2_KERNEL) || defined(__clang__)
+#define ASM_RESTORE_SYNTAX	".syntax unified\n"
+#else
+#define ASM_RESTORE_SYNTAX	".syntax divided\n"
+#endif
+#define ASM_UNIFIED(instruction, operands) \
+	"__arm_asm_unified " instruction ", " operands
+__asm__(
+".macro __arm_asm_unified instruction:req, operands:vararg\n"
+".syntax unified\n"
+"\\instruction \\operands\n"
+ASM_RESTORE_SYNTAX
+".endm\n");
+#endif
+
 #if defined(__ASSEMBLY__) && defined(CONFIG_ARM_ASM_UNIFIED)
 	.syntax unified
 #endif
@@ -54,7 +71,8 @@
 
 #endif	/* CONFIG_THUMB2_KERNEL */
 
-#ifndef CONFIG_ARM_ASM_UNIFIED
+#if !defined(CONFIG_ARM_ASM_UNIFIED) || \
+    (!defined(__ASSEMBLY__) && !defined(CONFIG_THUMB2_KERNEL))
 
 /*
  * If the unified assembly syntax isn't used (in ARM mode), these
@@ -125,6 +143,6 @@ __asm__(
 "	.endm\n");
 #endif	/* __ASSEMBLY__ */
 
-#endif	/* CONFIG_ARM_ASM_UNIFIED */
+#endif	/* ARM syntax IT macros */
 
 #endif	/* !__ASM_UNIFIED_H */

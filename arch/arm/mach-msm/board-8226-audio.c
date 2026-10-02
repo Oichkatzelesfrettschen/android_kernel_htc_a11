@@ -643,11 +643,6 @@ static const char *const proxy_rx_ch_text[] = {"One", "Two", "Three", "Four",
 	"Five", "Six", "Seven", "Eight"};
 static const char *const slim0_rx_bit_format_text[] = {"S16_LE", "S24_LE"};
 
-static const struct soc_enum msm_enum[] = {
-	SOC_ENUM_SINGLE_EXT(2, slim0_rx_ch_text),
-	SOC_ENUM_SINGLE_EXT(4, slim0_tx_ch_text),
-};
-
 static const char *const btsco_rate_text[] = {"8000", "16000"};
 static const struct soc_enum msm_btsco_enum[] = {
 	SOC_ENUM_SINGLE_EXT(2, btsco_rate_text),

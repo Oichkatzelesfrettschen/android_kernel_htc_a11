@@ -2103,7 +2103,7 @@ static int report_voltage_based_soc(struct qpnp_bms_chip *chip)
 #define REPORT_SOC_WAIT_MS		10000
 static int report_cc_based_soc(struct qpnp_bms_chip *chip)
 {
-	int soc, soc_change;
+	int soc, soc_change = 0;
 	int time_since_last_change_sec, charge_time_sec = 0;
 	unsigned long last_change_sec;
 	struct timespec now;
@@ -2134,6 +2134,7 @@ static int report_cc_based_soc(struct qpnp_bms_chip *chip)
 	pr_debug("batt_temp phy = %lld meas = 0x%llx\n", result.physical,
 						result.measurement);
 	batt_temp = (int)result.physical;
+	get_monotonic_boottime(&now);
 
 	mutex_lock(&chip->last_soc_mutex);
 	soc = chip->calculated_soc;
@@ -2648,6 +2649,7 @@ static int calculate_state_of_charge(struct qpnp_bms_chip *chip,
 	if (!is_battery_present(chip)) {
 		pr_debug("battery gone, reporting 100\n");
 		new_calculated_soc = 100;
+		soc = new_calculated_soc;
 		goto done_calculating;
 	}
 
@@ -2656,6 +2658,7 @@ static int calculate_state_of_charge(struct qpnp_bms_chip *chip,
 						params.fcc_uah,
 						params.uuc_uah);
 		new_calculated_soc = 0;
+		soc = new_calculated_soc;
 		goto done_calculating;
 	}
 

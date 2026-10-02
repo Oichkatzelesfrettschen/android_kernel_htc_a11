@@ -1,0 +1,80 @@
+a11 power-supply property bounds
+===============================
+
+The Clang boot oops reaches strlen from power_supply_uevent while registering
+the HTC battery supply. The seventh registered property is OVERLOAD (55).
+USB_OVERHEAT (56) is also registered. Both properties follow SERIAL_NUMBER
+in enum power_supply_property, but power_supply_attrs contained only indices
+0 through 54. Each ARM device_attribute occupies 16 bytes, so the original
+880-byte table ended exactly at the attempted OVERLOAD attribute.
+
+The retained Clang image places store_soc_ui, initialized to -1, immediately
+after the table. The oops records r7 at that object and r0 = 0xffffffff in
+strlen. The retained GCC image instead places power_supply_attr_groups after
+the table. Both objects contain 55 attributes; compiler layout changes expose
+the same invalid source access. GCC boot success does not establish validity
+of the property indexing.
+
+Adding overload and usb_overheat completes the positional attribute table
+without changing enum values. Both callbacks return intval, so string
+formatting now selects only MODEL_NAME, MANUFACTURER, and SERIAL_NUMBER.
+The uevent loop rejects indices outside the table before forming an attribute
+pointer. A compile-time size check ties the table to the final property.
+
+The shared sysfs formatter bounds each enum-text lookup and supplies the BMS
+type string required by qpnp-bms. Missing string values return ENODATA. The
+HTC charger-status callback also returns ENODATA when its provider is absent,
+instead of returning success with an uninitialized property union.
+
+Validation
+----------
+
+Run the Clang defconfig and zImage commands in a11-clang-build.txt with the
+documented tools and KCFLAGS=-Werror. The repaired build exited 0, with zero
+warning: and error: diagnostics. Clang 22.1.8 produced a 5456920-byte zImage:
+
+  SHA-256: 779af0d27197a19ad5c435ffdba587fbf334cea363033a978f321cad0c33aa79
+
+Inspect both output objects with:
+
+  llvm-readelf -s out-clang/drivers/power/power_supply_sysfs.o
+  llvm-readelf -s out-gcc/drivers/power/power_supply_sysfs.o
+  llvm-objdump -dr --disassemble-symbols=power_supply_uevent \
+    out-clang/drivers/power/power_supply_sysfs.o
+  llvm-objdump -dr out-gcc/drivers/power/power_supply_sysfs.o
+  llvm-objdump -r out-clang/drivers/power/power_supply_sysfs.o
+  llvm-objdump -r out-gcc/drivers/power/power_supply_sysfs.o
+
+Both repaired ARM objects contain 912-byte tables (57 entries), including
+string relocations for overload and usb_overheat. Clang compares the unsigned
+property index with 56 and branches to EINVAL before multiplying the index
+by 16. GCC also bounds the index before the table access. The shared formatter
+checks enum-text limits before loading string pointers.
+
+GCC 4.9 compiled both changed source files with KCFLAGS=-Werror and zero
+diagnostics, using the documented HOST_CLANG, HOSTCXX, HOSTCFLAGS,
+HOSTLDFLAGS, and LEX settings from the Clang command. The full GCC image
+rebuild stopped in ARM assembly outside the changed files: GNU assembler
+2.27 rejects ldrteq, eorseq, ldmiacc, stmialo, and sbcscc instruction spellings.
+The original GCC image remains a runtime control, not a rebuilt fixed image.
+
+A host harness compiling the actual sysfs implementation passed with Address
+and UndefinedBehavior sanitizers. Cases cover HTC integer values 0 and 1,
+property indices 57, -1, and INT_MAX, every valid enum-text index and its upper
+boundary, BMS type, and populated/missing string values. A source check matched
+all 57 property indices to attribute names, including temp_cool/temp_warm.
+LeakSanitizer was disabled because the sandbox tracing environment prevents
+its execution. Host fixtures establish formatter behavior, not device behavior.
+An extracted HTC callback harness also passed all four charger-status
+properties with absent and populated providers. The legacy checkpatch script
+could not execute because its regex syntax is rejected by the installed Perl.
+
+Device gate
+-----------
+
+The orchestrator must rebuild the Android image and verify boot beyond battery
+registration, integer overload/usb_overheat sysfs and uevent values, BMS type,
+battery level and charging status, cable connect/disconnect, and suspend/resume.
+Compare battery reporting with the retained GCC control under the same product
+configuration. Physical overload and USB overheating require separate attended
+qualification; reading their reported flags establishes formatting only.
