@@ -78,7 +78,9 @@ static struct delayed_work check_temp_work;
  * cores one policy because they share one clock, so the CPU cap is that of
  * the highest level across every CPU sensor.
  */
-static uint32_t cpu_sensor[NR_CPUS];
+static uint32_t cpu_sensor[NR_CPUS] = {
+	[0 ... NR_CPUS - 1] = TSENS_MAX_SENSORS
+};
 static unsigned int thermal_cap = UINT_MAX;
 
 /* Current level of each TSENS sensor; -1 is no mitigation. */
@@ -95,8 +97,16 @@ static int msm_thermal_cpufreq_callback(struct notifier_block *nfb,
 	return NOTIFY_OK;
 }
 
+/*
+ * cpu-boost raises policy->min to its boost frequency through
+ * cpufreq_verify_within_limits(policy, boost_min, UINT_MAX), which also lifts
+ * policy->max to that frequency when the max sits below it. The lowest
+ * priority runs this notifier after every other CPUFREQ_ADJUST handler, so
+ * the thermal cap bounds both limits last and a boost cannot exceed it.
+ */
 static struct notifier_block msm_thermal_cpufreq_notifier = {
 	.notifier_call = msm_thermal_cpufreq_callback,
+	.priority = INT_MIN,
 };
 
 /*
