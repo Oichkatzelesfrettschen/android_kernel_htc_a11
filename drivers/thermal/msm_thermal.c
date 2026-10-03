@@ -50,6 +50,17 @@ static void get_freq_table_limit_idx(void)
 	limit_idx = i - 1;
 }
 
+/*
+ * A band's cap sits @steps entries below the table's top frequency and stops
+ * at the first entry. msm_cpufreq ends the table at the highest rate that
+ * clk_round_rate accepts, so a part whose CPU clock tops out at 1.19 GHz has
+ * six entries, fewer than the eight steps of the hottest band.
+ */
+static uint32_t cap_freq(unsigned int steps)
+{
+	return table[limit_idx > steps ? limit_idx - steps : 0].frequency;
+}
+
 static void check_temp(struct work_struct *work)
 {
 	unsigned long temp = 0;
@@ -67,15 +78,15 @@ static void check_temp(struct work_struct *work)
 	tsens_get_temp(&tsens_dev, &temp);
 
 	if (temp > temp_max) {
-		freq_max = table[limit_idx - 8].frequency;
+		freq_max = cap_freq(8);
 		polling = HZ/8;
 
 	} else if (temp > temp_max - 2) {
-		freq_max = table[limit_idx - 5].frequency;
+		freq_max = cap_freq(5);
 		polling = HZ/4;
 
 	} else if (temp > temp_max - 5) {
-		freq_max = table[limit_idx - 2].frequency;
+		freq_max = cap_freq(2);
 		polling = HZ/2;
 
 	} else if (temp > temp_max - 10) {
