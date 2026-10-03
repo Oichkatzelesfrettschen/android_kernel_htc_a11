@@ -21,9 +21,11 @@
 #include <linux/msm_thermal.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
+#include <linux/reboot.h>
 #include <linux/string.h>
+#include <linux/syscalls.h>
 
-#define MAX_LEVELS		4
+#define MAX_LEVELS		3
 #define DEFAULT_POLL_MS		1000
 
 /*
@@ -34,9 +36,9 @@
  * level holds until the sensor has fallen through the whole gap and a
  * reading that hovers at a trip point changes the cap once.
  */
-static int trip_degc[MAX_LEVELS] = { 60, 70, 87, 90 };
-static int clear_degc[MAX_LEVELS] = { 57, 67, 82, 87 };
-static unsigned int cap_khz[MAX_LEVELS] = { 1094400, 787200, 787200, 600000 };
+static int trip_degc[MAX_LEVELS] = { 72, 75, 90 };
+static int clear_degc[MAX_LEVELS] = { 68, 71, 87 };
+static unsigned int cap_khz[MAX_LEVELS] = { 1094400, 787200, 600000 };
 static unsigned int nr_trip = MAX_LEVELS;
 static unsigned int nr_clear = MAX_LEVELS;
 static unsigned int nr_cap = MAX_LEVELS;
@@ -54,6 +56,18 @@ static int trip_offset;
 module_param(trip_offset, int, 0644);
 static bool enabled = true;
 module_param(enabled, bool, 0644);
+
+/*
+ * A CPU sensor at critical_degc syncs the filesystems and powers the phone
+ * off through kernel_power_off. orderly_poweroff is unusable here: it starts
+ * poweroff_cmd with UMH_NO_WAIT, Android ships no /sbin/poweroff, and the
+ * helper's failure arrives after the call has already returned success. The
+ * check ignores trip_offset and enabled, so a load test or a handoff never
+ * moves or removes it.
+ */
+static int critical_degc = 115;
+module_param(critical_degc, int, 0444);
+static bool critical_fired;
 
 static unsigned int nr_levels;
 static unsigned int poll_ms = DEFAULT_POLL_MS;
@@ -117,13 +131,18 @@ static void check_temp(struct work_struct *work)
 		if (!used)
 			continue;
 
-		level = -1;
-		if (enabled) {
-			tsens_dev.sensor_num = s;
-			if (tsens_get_temp(&tsens_dev, &temp))
-				level = sensor_level[s];
-			else
-				level = next_level(sensor_level[s], temp);
+		tsens_dev.sensor_num = s;
+		if (tsens_get_temp(&tsens_dev, &temp)) {
+			level = enabled ? sensor_level[s] : -1;
+		} else {
+			if (temp >= critical_degc && !critical_fired) {
+				critical_fired = true;
+				pr_crit("msm_thermal: tsens %u %ldC reached %dC, powering off\n",
+					s, temp, critical_degc);
+				sys_sync();
+				kernel_power_off();
+			}
+			level = enabled ? next_level(sensor_level[s], temp) : -1;
 		}
 		if (level != sensor_level[s]) {
 			pr_info("msm_thermal: tsens %u %ldC level %d -> %d\n",
