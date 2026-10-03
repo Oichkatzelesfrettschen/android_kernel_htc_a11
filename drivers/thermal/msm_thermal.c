@@ -61,6 +61,30 @@ static uint32_t cap_freq(unsigned int steps)
 	return table[limit_idx > steps ? limit_idx - steps : 0].frequency;
 }
 
+/*
+ * msm_cpufreq_set_freq_limits clamps a frequency only inside set_cpu_freq,
+ * and __cpufreq_driver_target returns before the driver when the governor
+ * asks for policy->cur, so a CPU held at the top frequency by load never
+ * reaches the clamp. The cap therefore also bounds policy->max on every
+ * CPUFREQ_ADJUST, and cpufreq_update_policy() hands the new maximum to the
+ * governor, whose CPUFREQ_GOV_LIMITS handler retargets the CPU below it.
+ * A CPU brought online later picks the cap up when its policy is created.
+ */
+static int msm_thermal_cpufreq_callback(struct notifier_block *nfb,
+		unsigned long event, void *data)
+{
+	struct cpufreq_policy *policy = data;
+
+	if (event == CPUFREQ_ADJUST && freq_buffer)
+		cpufreq_verify_within_limits(policy, 0, freq_buffer);
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block msm_thermal_cpufreq_notifier = {
+	.notifier_call = msm_thermal_cpufreq_callback,
+};
+
 static void check_temp(struct work_struct *work)
 {
 	unsigned long temp = 0;
@@ -97,9 +121,14 @@ static void check_temp(struct work_struct *work)
 	}
 
 	if (freq_buffer != freq_max) {
+		unsigned int i;
+
 		freq_buffer = freq_max;
-		for_each_possible_cpu(cpu)
-			msm_cpufreq_set_freq_limits(cpu, MSM_CPUFREQ_NO_LIMIT, freq_max);
+		for_each_possible_cpu(i) {
+			msm_cpufreq_set_freq_limits(i, MSM_CPUFREQ_NO_LIMIT, freq_max);
+			if (cpu_online(i))
+				cpufreq_update_policy(i);
+		}
 		pr_info("msm_thermal: CPU temp: %luC, max: %dMHz, polling: %dms",
 			temp, freq_max/1000, jiffies_to_msecs(polling));
 	}
@@ -116,6 +145,11 @@ int __devinit msm_thermal_init(struct msm_thermal_data *pdata)
 	memcpy(&msm_thermal_info, pdata, sizeof(struct msm_thermal_data));
 
 	pr_info("msm_thermal: Maximum cpu temp: %dC", temp_max);
+
+	ret = cpufreq_register_notifier(&msm_thermal_cpufreq_notifier,
+			CPUFREQ_POLICY_NOTIFIER);
+	if (ret)
+		return ret;
 
 	INIT_DELAYED_WORK(&check_temp_work, check_temp);
 	schedule_delayed_work(&check_temp_work, HZ*20);
