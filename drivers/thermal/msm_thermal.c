@@ -14,7 +14,6 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/module.h>
-#include <linux/mutex.h>
 #include <linux/msm_tsens.h>
 #include <linux/workqueue.h>
 #include <linux/cpu.h>
@@ -22,61 +21,62 @@
 #include <linux/msm_thermal.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
-#include <mach/cpufreq.h>
+#include <linux/string.h>
 
-#define DEFAULT_TEMP_MAX	85
+#define MAX_LEVELS		4
+#define DEFAULT_POLL_MS		1000
 
-static unsigned int polling = HZ*2;
-static unsigned int cpu = 0;
-static unsigned int limit_idx;
-static unsigned int temp_max = DEFAULT_TEMP_MAX;
-module_param(temp_max, int, 0644);
+/*
+ * CPU mitigation ladder, coolest level first. A level trips when its CPU
+ * sensor reads trip_degc or more and clears when it reads clear_degc or
+ * less; the CPU runs under the cap of the highest tripped level and under
+ * none once every level has cleared. clear_degc sits below trip_degc, so a
+ * level holds until the sensor has fallen through the whole gap and a
+ * reading that hovers at a trip point changes the cap once.
+ */
+static int trip_degc[MAX_LEVELS] = { 60, 70, 87, 90 };
+static int clear_degc[MAX_LEVELS] = { 57, 67, 82, 87 };
+static unsigned int cap_khz[MAX_LEVELS] = { 1094400, 787200, 787200, 600000 };
+static unsigned int nr_trip = MAX_LEVELS;
+static unsigned int nr_clear = MAX_LEVELS;
+static unsigned int nr_cap = MAX_LEVELS;
+module_param_array(trip_degc, int, &nr_trip, 0444);
+module_param_array(clear_degc, int, &nr_clear, 0444);
+module_param_array(cap_khz, uint, &nr_cap, 0444);
 
-static uint32_t freq_max;
-static uint32_t freq_buffer;
+/*
+ * trip_offset lowers every trip and clear point by that many degrees C, so a
+ * load test reaches each level at a lower die temperature. enabled set to 0
+ * clears every level and releases the caps, the handoff a userspace thermal
+ * daemon performs by writing N.
+ */
+static int trip_offset;
+module_param(trip_offset, int, 0644);
+static bool enabled = true;
+module_param(enabled, bool, 0644);
 
-static struct msm_thermal_data msm_thermal_info;
+static unsigned int nr_levels;
+static unsigned int poll_ms = DEFAULT_POLL_MS;
 static struct delayed_work check_temp_work;
-static struct cpufreq_frequency_table *table;
-
-static void get_freq_table_limit_idx(void)
-{
-	int i = 0;
-
-	table = cpufreq_frequency_get_table(cpu);
-	while (table[i].frequency != CPUFREQ_TABLE_END)
-		i++;
-
-	limit_idx = i - 1;
-}
 
 /*
- * A band's cap sits @steps entries below the table's top frequency and stops
- * at the first entry. msm_cpufreq ends the table at the highest rate that
- * clk_round_rate accepts, so a part whose CPU clock tops out at 1.19 GHz has
- * six entries, fewer than the eight steps of the hottest band.
+ * Per-CPU TSENS sensor from qcom,cpu-sensors. msm_cpufreq gives all four
+ * cores one policy because they share one clock, so the CPU cap is that of
+ * the highest level across every CPU sensor.
  */
-static uint32_t cap_freq(unsigned int steps)
-{
-	return table[limit_idx > steps ? limit_idx - steps : 0].frequency;
-}
+static uint32_t cpu_sensor[NR_CPUS];
+static unsigned int thermal_cap = UINT_MAX;
 
-/*
- * msm_cpufreq_set_freq_limits clamps a frequency only inside set_cpu_freq,
- * and __cpufreq_driver_target returns before the driver when the governor
- * asks for policy->cur, so a CPU held at the top frequency by load never
- * reaches the clamp. The cap therefore also bounds policy->max on every
- * CPUFREQ_ADJUST, and cpufreq_update_policy() hands the new maximum to the
- * governor, whose CPUFREQ_GOV_LIMITS handler retargets the CPU below it.
- * A CPU brought online later picks the cap up when its policy is created.
- */
+/* Current level of each TSENS sensor; -1 is no mitigation. */
+static int sensor_level[TSENS_MAX_SENSORS];
+
 static int msm_thermal_cpufreq_callback(struct notifier_block *nfb,
 		unsigned long event, void *data)
 {
 	struct cpufreq_policy *policy = data;
 
-	if (event == CPUFREQ_ADJUST && freq_buffer)
-		cpufreq_verify_within_limits(policy, 0, freq_buffer);
+	if (event == CPUFREQ_ADJUST)
+		cpufreq_verify_within_limits(policy, 0, thermal_cap);
 
 	return NOTIFY_OK;
 }
@@ -85,66 +85,110 @@ static struct notifier_block msm_thermal_cpufreq_notifier = {
 	.notifier_call = msm_thermal_cpufreq_callback,
 };
 
+/*
+ * Moves a sensor's level up through every trip point the reading has reached,
+ * then down through every level whose clear point it has fallen to.
+ */
+static int next_level(int level, long temp)
+{
+	while (level + 1 < (int)nr_levels &&
+	       temp >= trip_degc[level + 1] - trip_offset)
+		level++;
+	while (level >= 0 && temp <= clear_degc[level] - trip_offset)
+		level--;
+	return level;
+}
+
 static void check_temp(struct work_struct *work)
 {
-	unsigned long temp = 0;
 	struct tsens_device tsens_dev;
+	unsigned int cap;
+	unsigned int cpu;
+	unsigned int s;
+	long temp = 0;
+	int highest = -1;
+	int level;
 
-	if (!limit_idx)
-		get_freq_table_limit_idx();
+	for (s = 0; s < TSENS_MAX_SENSORS; s++) {
+		bool used = false;
 
-	freq_max = table[limit_idx].frequency;
+		for_each_possible_cpu(cpu)
+			used |= cpu_sensor[cpu] == s;
+		if (!used)
+			continue;
 
-	if (freq_buffer == 0)
-		freq_buffer = freq_max;
-
-	tsens_dev.sensor_num = msm_thermal_info.sensor_id;
-	tsens_get_temp(&tsens_dev, &temp);
-
-	if (temp > temp_max) {
-		freq_max = cap_freq(8);
-		polling = HZ/8;
-
-	} else if (temp > temp_max - 2) {
-		freq_max = cap_freq(5);
-		polling = HZ/4;
-
-	} else if (temp > temp_max - 5) {
-		freq_max = cap_freq(2);
-		polling = HZ/2;
-
-	} else if (temp > temp_max - 10) {
-		polling = HZ;
-
-	} else {
-		polling = HZ*2;
-	}
-
-	if (freq_buffer != freq_max) {
-		unsigned int i;
-
-		freq_buffer = freq_max;
-		for_each_possible_cpu(i) {
-			msm_cpufreq_set_freq_limits(i, MSM_CPUFREQ_NO_LIMIT, freq_max);
-			if (cpu_online(i))
-				cpufreq_update_policy(i);
+		level = -1;
+		if (enabled) {
+			tsens_dev.sensor_num = s;
+			if (tsens_get_temp(&tsens_dev, &temp))
+				level = sensor_level[s];
+			else
+				level = next_level(sensor_level[s], temp);
 		}
-		pr_info("msm_thermal: CPU temp: %luC, max: %dMHz, polling: %dms",
-			temp, freq_max/1000, jiffies_to_msecs(polling));
+		if (level != sensor_level[s]) {
+			pr_info("msm_thermal: tsens %u %ldC level %d -> %d\n",
+				s, enabled ? temp : 0L, sensor_level[s], level);
+			sensor_level[s] = level;
+		}
+		if (sensor_level[s] > highest)
+			highest = sensor_level[s];
 	}
 
-	schedule_delayed_work(&check_temp_work, polling);
+	cap = highest < 0 ? UINT_MAX : cap_khz[highest];
+	if (cap != thermal_cap) {
+		pr_info("msm_thermal: CPU cap %u kHz\n", cap);
+		thermal_cap = cap;
+		get_online_cpus();
+		for_each_online_cpu(cpu)
+			cpufreq_update_policy(cpu);
+		put_online_cpus();
+	}
+
+	schedule_delayed_work(&check_temp_work, msecs_to_jiffies(poll_ms));
+}
+
+static int ladder_valid(void)
+{
+	unsigned int i;
+
+	if (nr_trip != nr_clear || nr_trip != nr_cap || !nr_trip)
+		return 0;
+	for (i = 0; i < nr_trip; i++) {
+		if (clear_degc[i] >= trip_degc[i])
+			return 0;
+		if (i && (trip_degc[i] <= trip_degc[i - 1] ||
+			  clear_degc[i] < clear_degc[i - 1] ||
+			  cap_khz[i] > cap_khz[i - 1]))
+			return 0;
+	}
+	return 1;
 }
 
 int __devinit msm_thermal_init(struct msm_thermal_data *pdata)
 {
-	int ret = 0;
+	unsigned int cpu;
+	unsigned int s;
+	int ret;
 
 	BUG_ON(!pdata);
 	BUG_ON(pdata->sensor_id >= TSENS_MAX_SENSORS);
-	memcpy(&msm_thermal_info, pdata, sizeof(struct msm_thermal_data));
 
-	pr_info("msm_thermal: Maximum cpu temp: %dC", temp_max);
+	if (!ladder_valid()) {
+		pr_err("msm_thermal: trip, clear, and cap ladder is inconsistent\n");
+		return -EINVAL;
+	}
+	nr_levels = nr_trip;
+	if (pdata->poll_ms)
+		poll_ms = pdata->poll_ms;
+
+	for (s = 0; s < TSENS_MAX_SENSORS; s++)
+		sensor_level[s] = -1;
+	for_each_possible_cpu(cpu) {
+		if (cpu_sensor[cpu] >= TSENS_MAX_SENSORS)
+			cpu_sensor[cpu] = pdata->sensor_id;
+		pr_info("msm_thermal: cpu%u follows tsens %u\n", cpu,
+			cpu_sensor[cpu]);
+	}
 
 	ret = cpufreq_register_notifier(&msm_thermal_cpufreq_notifier,
 			CPUFREQ_POLICY_NOTIFIER);
@@ -154,31 +198,50 @@ int __devinit msm_thermal_init(struct msm_thermal_data *pdata)
 	INIT_DELAYED_WORK(&check_temp_work, check_temp);
 	schedule_delayed_work(&check_temp_work, HZ*20);
 
-	return ret;
+	return 0;
+}
+
+/*
+ * qcom,cpu-sensors names one thermal zone per CPU as "tsens_tz_sensorN"; a
+ * CPU with no usable entry follows qcom,sensor-id.
+ */
+static void __devinit read_cpu_sensors(struct device_node *node)
+{
+	const char *name;
+	unsigned int cpu;
+	unsigned long id;
+
+	for (cpu = 0; cpu < NR_CPUS; cpu++) {
+		cpu_sensor[cpu] = TSENS_MAX_SENSORS;
+		if (of_property_read_string_index(node, "qcom,cpu-sensors",
+						  cpu, &name))
+			continue;
+		if (strncmp(name, "tsens_tz_sensor", 15) ||
+		    kstrtoul(name + 15, 10, &id) || id >= TSENS_MAX_SENSORS)
+			continue;
+		cpu_sensor[cpu] = id;
+	}
 }
 
 static int __devinit msm_thermal_dev_probe(struct platform_device *pdev)
 {
-	int ret = 0;
-	char *key = NULL;
 	struct device_node *node = pdev->dev.of_node;
 	struct msm_thermal_data data;
+	int ret;
 
 	memset(&data, 0, sizeof(struct msm_thermal_data));
-	key = "qcom,sensor-id";
-	ret = of_property_read_u32(node, key, &data.sensor_id);
-	if (ret)
-		goto fail;
-	WARN_ON(data.sensor_id >= TSENS_MAX_SENSORS);
+	ret = of_property_read_u32(node, "qcom,sensor-id", &data.sensor_id);
+	if (ret) {
+		pr_err("%s: Failed reading node=%s, key=qcom,sensor-id\n",
+		       __func__, node->full_name);
+		return ret;
+	}
+	if (data.sensor_id >= TSENS_MAX_SENSORS)
+		return -EINVAL;
+	of_property_read_u32(node, "qcom,poll-ms", &data.poll_ms);
+	read_cpu_sensors(node);
 
-fail:
-	if (ret)
-		pr_err("%s: Failed reading node=%s, key=%s\n",
-		       __func__, node->full_name, key);
-	else
-		ret = msm_thermal_init(&data);
-
-	return ret;
+	return msm_thermal_init(&data);
 }
 
 static struct of_device_id msm_thermal_match_table[] = {
@@ -199,4 +262,3 @@ int __init msm_thermal_device_init(void)
 {
 	return platform_driver_register(&msm_thermal_device_driver);
 }
-
