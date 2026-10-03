@@ -25,7 +25,7 @@
 #include <linux/string.h>
 #include <linux/syscalls.h>
 
-#define MAX_LEVELS		3
+#define MAX_LEVELS		4
 #define DEFAULT_POLL_MS		1000
 
 /*
@@ -36,9 +36,9 @@
  * level holds until the sensor has fallen through the whole gap and a
  * reading that hovers at a trip point changes the cap once.
  */
-static int trip_degc[MAX_LEVELS] = { 72, 75, 90 };
-static int clear_degc[MAX_LEVELS] = { 68, 71, 87 };
-static unsigned int cap_khz[MAX_LEVELS] = { 1094400, 787200, 600000 };
+static int trip_degc[MAX_LEVELS] = { 72, 75, 90, 108 };
+static int clear_degc[MAX_LEVELS] = { 68, 71, 87, 104 };
+static unsigned int cap_khz[MAX_LEVELS] = { 1094400, 787200, 600000, 300000 };
 static unsigned int nr_trip = MAX_LEVELS;
 static unsigned int nr_clear = MAX_LEVELS;
 static unsigned int nr_cap = MAX_LEVELS;
