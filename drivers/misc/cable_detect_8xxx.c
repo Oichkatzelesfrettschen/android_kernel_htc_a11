@@ -1184,6 +1184,7 @@ static const struct platform_device_id cable_detect_id_table[] __devinitconst = 
 	{
 		.name = "cable_detect",
 	},
+	{}
 };
 #endif
 

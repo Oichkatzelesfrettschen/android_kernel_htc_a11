@@ -1039,7 +1039,8 @@ probe_end:
 
 static const struct of_device_id msm_dt_match[] = {
 	{.compatible = "qcom,msm-cam"},
-}
+	{}
+};
 
 MODULE_DEVICE_TABLE(of, msm_dt_match);
 

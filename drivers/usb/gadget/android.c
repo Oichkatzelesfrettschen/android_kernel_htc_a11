@@ -4045,6 +4045,7 @@ static const struct platform_device_id android_id_table[] __devinitconst = {
 	{
 		.name = "android_usb_hsic",
 	},
+	{}
 };
 #if 0 
 static struct of_device_id usb_android_dt_match[] = {
