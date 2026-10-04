@@ -638,6 +638,13 @@ KBUILD_CFLAGS	+= -fomit-frame-pointer
 endif
 endif
 
+# The kernel links at a fixed address and expects absolute code and data, but
+# Clang defaults to PIE for arm-linux-gnueabi and the Android GCC 4.9 to -fpic.
+ifdef CONFIG_ARM_KERNEL_NO_PIE
+KBUILD_CFLAGS	+= $(call cc-option, -fno-PIE)
+KBUILD_AFLAGS	+= $(call cc-option, -fno-PIE)
+endif
+
 ifdef CONFIG_DEBUG_INFO
 KBUILD_CFLAGS	+= -g
 KBUILD_AFLAGS	+= -gdwarf-4
