@@ -1155,7 +1155,7 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 				goto error_reg_write;
 			}
 
-			qpnp_led_masked_write(led, FLASH_MAX_CURR(led->base),
+			rc = qpnp_led_masked_write(led, FLASH_MAX_CURR(led->base),
 				FLASH_CURRENT_MASK,
 				TORCH_MAX_LEVEL);
 			if (rc) {
