@@ -806,7 +806,8 @@ quiet_cmd_vmlinux__ = LD      $@
 # codegen, so the diagnostics codegen raises (inline asm among them) never
 # print and --fatal-warnings has nothing to fail on. The cache is opt-in:
 # KBUILD_THINLTO_CACHE names its directory, and a warnings-as-errors gate
-# leaves it unset.
+# leaves it unset. make clean removes only the llvmcache entries LLVM writes
+# there and the directory once it is empty.
 thinlto-cache-flags := $(if $(KBUILD_THINLTO_CACHE),--thinlto-cache-dir=$(KBUILD_THINLTO_CACHE) \
 	--thinlto-cache-policy=cache_size_bytes=8589934592:cache_size_files=10000)
 
@@ -1497,8 +1498,10 @@ clean: $(clean-dirs)
 		-o -name 'modules.order' \
 		-o -name modules.builtin -o -name '.tmp_*.o.*' \
 		-o -name '*.gcno' \) -type f -print | xargs rm -f
-	$(if $(KBUILD_EXTMOD),,@for d in .thinlto-cache $(KBUILD_THINLTO_CACHE); do \
-		if [ -d "$$d" ]; then find "$$d" -depth -delete; fi; done)
+	$(if $(KBUILD_EXTMOD),,@if [ -d .thinlto-cache ]; then find .thinlto-cache -depth -delete; fi)
+	$(if $(KBUILD_EXTMOD),,$(if $(KBUILD_THINLTO_CACHE),@if [ -d "$(KBUILD_THINLTO_CACHE)" ]; then \
+		find "$(KBUILD_THINLTO_CACHE)" -maxdepth 1 -type f -name 'llvmcache*' -delete; \
+		rmdir "$(KBUILD_THINLTO_CACHE)" 2>/dev/null || true; fi))
 
 # Generate tags for editors
 # ---------------------------------------------------------------------------
