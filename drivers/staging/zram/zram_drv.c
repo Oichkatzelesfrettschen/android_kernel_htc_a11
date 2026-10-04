@@ -41,7 +41,11 @@ static struct zram *zram_devices;
 
 #define ALLOC_ERROR_LOG_RATE_MS 1000
 
-static unsigned int num_devices = 4;
+/*
+ * The board swaps on zram0 alone; each extra device adds a gendisk whose sysfs
+ * nodes the platform genfs_contexts leaves under sysfs_devices_block.
+ */
+static unsigned int num_devices = 1;
 
 static inline struct zram *dev_to_zram(struct device *dev)
 {
