@@ -1,6 +1,9 @@
 hostprogs-y	:= modpost mk_elfconfig
 always		:= $(hostprogs-y) empty.o
 
+# mk_elfconfig reads the target ELF class and byte order from empty.o.
+CFLAGS_empty.o := $(DISABLE_LTO)
+
 modpost-objs	:= modpost.o file2alias.o sumversion.o
 
 # dependencies on generated files need to be listed explicitly
