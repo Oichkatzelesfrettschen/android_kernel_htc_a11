@@ -72,6 +72,10 @@ obj-$(CONFIG_CPU_PJ4)		+= pj4-cp0.o
 obj-$(CONFIG_IWMMXT)		+= iwmmxt.o
 obj-$(CONFIG_CPU_HAS_PMU)	+= pmu.o
 obj-$(CONFIG_HW_PERF_EVENTS)	+= perf_event.o
+# The Venum PMU accessors in perf_event_msm*.c read vendor CP10 registers,
+# which the integrated assembler reports as -Winline-asm. The file-local
+# pragma that silences it applies only when this object compiles natively.
+CFLAGS_perf_event.o		+= $(DISABLE_LTO)
 AFLAGS_iwmmxt.o			:= -Wa,-mcpu=iwmmxt
 obj-$(CONFIG_ARM_CPU_TOPOLOGY)  += topology.o
 obj-$(CONFIG_ARM_USE_USER_ACCESSIBLE_TIMERS)	+= user_accessible_timer.o

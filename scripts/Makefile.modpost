@@ -63,6 +63,14 @@ modulesymfile := $(firstword $(KBUILD_EXTMOD))/Module.symvers
 __modules := $(sort $(shell grep -h '\.ko' /dev/null $(wildcard $(MODVERDIR)/*.mod)))
 modules   := $(patsubst %.o,%.ko, $(wildcard $(__modules:.ko=.o)))
 
+# CONFIG_LTO_CLANG_THIN compiles module objects to bitcode, and only the
+# vmlinux prelink turns bitcode into native code.
+ifeq ($(CONFIG_LTO_CLANG_THIN),y)
+ifneq ($(modules),)
+$(error CONFIG_LTO_CLANG_THIN links vmlinux only; disable it to build $(notdir $(modules)))
+endif
+endif
+
 # Stop after building .o files if NOFINAL is set. Makes compile tests quicker
 _modpost: $(if $(KBUILD_MODPOST_NOFINAL), $(modules:.ko:.o),$(modules))
 

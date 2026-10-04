@@ -530,12 +530,20 @@
 		*(.scommon)						\
 	}
 
+/* LLD's LTO code generator emits one .bss.<name> section per variable. */
+#ifdef CONFIG_LTO_CLANG_THIN
+#define LTO_BSS_SECTIONS *(.bss.*)
+#else
+#define LTO_BSS_SECTIONS
+#endif
+
 #define BSS(bss_align)							\
 	. = ALIGN(bss_align);						\
 	.bss : AT(ADDR(.bss) - LOAD_OFFSET) {				\
 		*(.bss..page_aligned)					\
 		*(.dynbss)						\
 		*(.bss)							\
+		LTO_BSS_SECTIONS					\
 		*(COMMON)						\
 	}
 

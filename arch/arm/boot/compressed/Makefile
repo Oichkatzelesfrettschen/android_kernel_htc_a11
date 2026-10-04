@@ -124,6 +124,8 @@ ifeq ($(CONFIG_FUNCTION_TRACER),y)
 ORIG_CFLAGS := $(KBUILD_CFLAGS)
 KBUILD_CFLAGS = $(subst -pg, , $(ORIG_CFLAGS))
 endif
+# The decompressor links its own native objects with its own linker script.
+KBUILD_CFLAGS += $(DISABLE_LTO)
 
 ccflags-y := -fpic -fno-builtin -I$(obj)
 # The standalone decompressor runs before the kernel initializes its canary.
