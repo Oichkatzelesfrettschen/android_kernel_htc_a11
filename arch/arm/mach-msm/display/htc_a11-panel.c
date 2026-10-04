@@ -140,11 +140,13 @@ static int __devinit tps_65132_tx_i2c_probe(struct i2c_client *client,
 
 
 static const struct i2c_device_id tps_65132_tx_id[] = {
-	{"tps65132", 0}
+	{"tps65132", 0},
+	{}
 };
 
 static struct of_device_id TSP_match_table[] = {
-	{.compatible = "disp-tps-65132",}
+	{.compatible = "disp-tps-65132",},
+	{}
 };
 
 static struct i2c_driver tps_65132_tx_i2c_driver = {

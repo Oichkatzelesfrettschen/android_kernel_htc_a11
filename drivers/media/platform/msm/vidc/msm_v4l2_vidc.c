@@ -528,6 +528,7 @@ static int __devexit msm_vidc_remove(struct platform_device *pdev)
 }
 static const struct of_device_id msm_vidc_dt_match[] = {
 	{.compatible = "qcom,msm-vidc"},
+	{}
 };
 
 MODULE_DEVICE_TABLE(of, msm_vidc_dt_match);
