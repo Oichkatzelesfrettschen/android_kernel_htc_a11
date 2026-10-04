@@ -825,7 +825,8 @@ quiet_cmd_vmlinux-modpost = LTO     $@
 		--thinlto-cache-policy=cache_size_bytes=8589934592:cache_size_files=10000 \
 		-T vmlinux.symversions -T vmlinux.initcalls.lds \
 		-o $@ --whole-archive $(vmlinux-native-inputs) --no-whole-archive; \
-	$(PERL) $(srctree)/scripts/validate-lto-prelink.pl $(READELF) $@
+	$(PERL) $(srctree)/scripts/validate-lto-prelink.pl $(READELF) $@ || \
+		{ rm -f $@; exit 1; }
 endif
 
 # Rule to link vmlinux - also used during CONFIG_KALLSYMS
