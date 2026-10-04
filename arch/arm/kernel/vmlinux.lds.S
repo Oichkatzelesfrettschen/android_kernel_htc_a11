@@ -102,6 +102,10 @@ SECTIONS
 			LOCK_TEXT
 			KPROBES_TEXT
 			IDMAP_TEXT
+#ifdef CONFIG_LTO_CLANG_THIN
+			/* LLD's LTO code generator emits one section per function. */
+			*(.text.*)
+#endif
 #ifdef CONFIG_MMU
 			*(.fixup)
 #endif
@@ -264,6 +268,10 @@ SECTIONS
 		 */
 		DATA_DATA
 		CONSTRUCTORS
+#ifdef CONFIG_LTO_CLANG_THIN
+		/* LLD's LTO code generator emits one section per variable. */
+		*(.data.*)
+#endif
 
 		_edata = .;
 	}
