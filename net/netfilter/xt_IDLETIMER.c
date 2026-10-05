@@ -115,12 +115,15 @@ static ssize_t idletimer_tg_show(struct kobject *kobj, struct attribute *attr,
 	struct idletimer_tg *timer;
 	unsigned long expires = 0;
 	unsigned long now = jiffies;
+	bool send_nl_msg = false;
 
 	mutex_lock(&list_mutex);
 
 	timer =	__idletimer_tg_find_by_label(attr->name);
-	if (timer)
+	if (timer) {
 		expires = timer->timer.expires;
+		send_nl_msg = timer->send_nl_msg;
+	}
 
 	mutex_unlock(&list_mutex);
 
@@ -128,7 +131,7 @@ static ssize_t idletimer_tg_show(struct kobject *kobj, struct attribute *attr,
 		return sprintf(buf, "%u\n",
 			       jiffies_to_msecs(expires - now) / 1000);
 
-	if (timer->send_nl_msg)
+	if (send_nl_msg)
 		return sprintf(buf, "0 %d\n",
 			jiffies_to_msecs(now - expires) / 1000);
 	else
@@ -244,6 +247,12 @@ static int idletimer_tg_checkentry(const struct xt_tgchk_param *par)
 		return -EINVAL;
 	}
 
+	/* info->timeout * 1000 has to fit the int msecs_to_jiffies() takes. */
+	if (info->timeout >= INT_MAX / 1000) {
+		pr_debug("timeout value is too big\n");
+		return -EINVAL;
+	}
+
 	if (info->label[0] == '\0' ||
 	    strnlen(info->label,
 		    MAX_IDLETIMER_LABEL_SIZE) == MAX_IDLETIMER_LABEL_SIZE) {
@@ -295,16 +304,22 @@ static void idletimer_tg_destroy(const struct xt_tgdtor_param *par)
 		pr_debug("deleting timer %s\n", info->label);
 
 		list_del(&info->timer->entry);
+		/*
+		 * sysfs_remove_file() waits for active idletimer_tg_show()
+		 * callers, which take list_mutex, so the timer leaves the list
+		 * under the mutex and is drained and freed after it.
+		 */
+		mutex_unlock(&list_mutex);
 		del_timer_sync(&info->timer->timer);
 		cancel_work_sync(&info->timer->work);
 		sysfs_remove_file(idletimer_tg_kobj, &info->timer->attr.attr);
 		kfree(info->timer->attr.attr.name);
 		kfree(info->timer);
-	} else {
-		pr_debug("decreased refcnt of timer %s to %u\n",
-		info->label, info->timer->refcnt);
+		return;
 	}
 
+	pr_debug("decreased refcnt of timer %s to %u\n",
+		 info->label, info->timer->refcnt);
 	mutex_unlock(&list_mutex);
 }
 
