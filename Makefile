@@ -803,6 +803,15 @@ quiet_cmd_vmlinux__ = LD      $@
       cmd_vmlinux__ = $(LD) $(LDFLAGS) $(LDFLAGS_vmlinux) -o $@ \
 	-T $(vmlinux-lds) vmlinux.o \
 	$(filter-out $(vmlinux-lds) $(vmlinux-init) $(vmlinux-main) vmlinux.o FORCE,$^)
+# A ThinLTO cache hit replays a module's native object without running its
+# codegen, so the diagnostics codegen raises (inline asm among them) never
+# print and --fatal-warnings has nothing to fail on. The cache is opt-in:
+# KBUILD_THINLTO_CACHE names its directory, and a warnings-as-errors gate
+# leaves it unset. make clean removes only the llvmcache entries LLVM writes
+# there and the directory once it is empty.
+thinlto-cache-flags := $(if $(KBUILD_THINLTO_CACHE),--thinlto-cache-dir=$(KBUILD_THINLTO_CACHE) \
+	--thinlto-cache-policy=cache_size_bytes=8589934592:cache_size_files=10000)
+
 # The prelink applies every genksyms CRC script and the generated initcall
 # order script. genksyms writes no CRC for the per-CPU array export
 # softirq_work_list, whose weak __crc reference a native link resolves to
@@ -819,11 +828,8 @@ quiet_cmd_vmlinux-modpost = LTO     $@
 	echo "__crc_softirq_work_list = 0 ;" >> vmlinux.symversions; \
 	NM=$(NM) $(PERL) $(srctree)/scripts/generate-lto-initcall-order.pl \
 		$(vmlinux-all) > vmlinux.initcalls.lds; \
-	mkdir -p .thinlto-cache; \
 	$(LD) $(LDFLAGS) -r --fatal-warnings --thinlto-jobs=2 \
-		--mllvm=-import-instr-limit=5 \
-		--thinlto-cache-dir=.thinlto-cache \
-		--thinlto-cache-policy=cache_size_bytes=8589934592:cache_size_files=10000 \
+		--mllvm=-import-instr-limit=5 $(thinlto-cache-flags) \
 		-T vmlinux.symversions -T vmlinux.initcalls.lds \
 		-o $@ --whole-archive $(vmlinux-native-inputs) --no-whole-archive; \
 	$(PERL) $(srctree)/scripts/validate-lto-prelink.pl $(READELF) $@ || \
@@ -1494,6 +1500,9 @@ clean: $(clean-dirs)
 		-o -name modules.builtin -o -name '.tmp_*.o.*' \
 		-o -name '*.gcno' \) -type f -print | xargs rm -f
 	$(if $(KBUILD_EXTMOD),,@if [ -d .thinlto-cache ]; then find .thinlto-cache -depth -delete; fi)
+	$(if $(KBUILD_EXTMOD),,$(if $(KBUILD_THINLTO_CACHE),@if [ -d "$(KBUILD_THINLTO_CACHE)" ]; then \
+		find "$(KBUILD_THINLTO_CACHE)" -maxdepth 1 -type f -name 'llvmcache*' -delete; \
+		rmdir "$(KBUILD_THINLTO_CACHE)" 2>/dev/null || true; fi))
 
 # Generate tags for editors
 # ---------------------------------------------------------------------------
