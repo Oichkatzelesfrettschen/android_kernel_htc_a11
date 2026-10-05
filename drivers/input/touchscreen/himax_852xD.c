@@ -6650,7 +6650,8 @@ static int himax8528_probe(struct i2c_client *client, const struct i2c_device_id
 	}
 	
 	
-	if (board_mfg_mode() == MFG_MODE_OFFMODE_CHARGING ||
+	if ((!IS_ENABLED(CONFIG_TOUCHSCREEN_HIMAX_OFFMODE_CHARGING_PROBE) &&
+	     board_mfg_mode() == MFG_MODE_OFFMODE_CHARGING) ||
 	    board_mfg_mode() == MFG_MODE_POWER_TEST) {
 		I(" %s: offmode charging. Set touch chip to sleep mode and skip touch driver probe\n", __func__);
 		
