@@ -82,6 +82,8 @@
 static DEFINE_MUTEX(cgroup_mutex);
 static DEFINE_MUTEX(cgroup_root_mutex);
 
+static struct file_system_type compat_cgroup2_fs_type;
+
 /*
  * Generate an array of cgroup subsystem pointers. At boot time, this is
  * populated up to CGROUP_BUILTIN_SUBSYS_COUNT, and modular subsystems are
@@ -248,6 +250,7 @@ inline int cgroup_is_removed(const struct cgroup *cgrp)
 /* bits in struct cgroupfs_root flags field */
 enum {
 	ROOT_NOPREFIX, /* mounted subsystems have no named prefix */
+	ROOT_CGROUP2,  /* mounted through compat_cgroup2_fs_type */
 };
 
 static int cgroup_is_releasable(const struct cgroup *cgrp)
@@ -1301,6 +1304,17 @@ static int cgroup_remount(struct super_block *sb, int *flags, char *data)
 	mutex_lock(&cgroup_mutex);
 	mutex_lock(&cgroup_root_mutex);
 
+	/*
+	 * The unified hierarchy binds no subsystem and takes no mount option,
+	 * so a remount changes only the generic superblock flags.
+	 */
+	if (test_bit(ROOT_CGROUP2, &root->flags)) {
+		memset(&opts, 0, sizeof(opts));
+		if (data && *data)
+			ret = -EINVAL;
+		goto out_unlock;
+	}
+
 	/* See what subsystems are wanted */
 	ret = parse_cgroupfs_options(data, &opts);
 	if (ret)
@@ -1510,11 +1524,20 @@ static struct dentry *cgroup_mount(struct file_system_type *fs_type,
 	struct super_block *sb;
 	struct cgroupfs_root *new_root;
 	struct inode *inode;
+	bool is_v2 = fs_type == &compat_cgroup2_fs_type;
 
 	/* First find the desired set of subsystems */
-	mutex_lock(&cgroup_mutex);
-	ret = parse_cgroupfs_options(data, &opts);
-	mutex_unlock(&cgroup_mutex);
+	if(is_v2){
+	       memset(&opts, 0, sizeof(opts));
+	       opts.none = true;
+	       set_bit(ROOT_CGROUP2, &opts.flags);
+	}
+
+	else{
+	       mutex_lock(&cgroup_mutex);
+	       ret = parse_cgroupfs_options(data, &opts);
+	       mutex_unlock(&cgroup_mutex);
+	}
 	if (ret)
 		goto out_err;
 
@@ -1698,6 +1721,12 @@ static void cgroup_kill_sb(struct super_block *sb) {
 
 static struct file_system_type cgroup_fs_type = {
 	.name = "cgroup",
+	.mount = cgroup_mount,
+	.kill_sb = cgroup_kill_sb,
+};
+
+static struct file_system_type compat_cgroup2_fs_type = {
+	.name = "cgroup2",
 	.mount = cgroup_mount,
 	.kill_sb = cgroup_kill_sb,
 };
@@ -4399,6 +4428,12 @@ int __init cgroup_init(void)
 		goto out;
 	}
 
+	err = register_filesystem(&compat_cgroup2_fs_type);
+	if (err < 0) {
+		kobject_put(cgroup_kobj);
+		goto out;
+	}
+
 	proc_create("cgroups", 0, NULL, &proc_cgroupstats_operations);
 
 out:
@@ -4449,7 +4484,13 @@ static int proc_cgroup_show(struct seq_file *m, void *v)
 		struct cgroup *cgrp;
 		int count = 0;
 
-		seq_printf(m, "%d:", root->hierarchy_id);
+		/*
+		 * The unified hierarchy reports ID 0, which is the "0::" line
+		 * libprocessgroup's GetTaskGroup() looks for on a version 2
+		 * controller.
+		 */
+		seq_printf(m, "%d:", test_bit(ROOT_CGROUP2, &root->flags) ?
+			   0 : root->hierarchy_id);
 		for_each_subsys(root, ss)
 			seq_printf(m, "%s%s", count++ ? "," : "", ss->name);
 		if (strlen(root->name))
