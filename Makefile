@@ -330,7 +330,7 @@ include $(srctree)/scripts/Kbuild.include
 # Make variables (CC, etc...)
 
 ifeq ($(LLVM),1)
-CC		= clang --target=arm-linux-gnueabi -fintegrated-as -fgnuc-version=4.9.0 -fno-addrsig -ferror-limit=0
+CC		= clang
 AS		= $(CC)
 LD		= ld.lld
 AR		= llvm-ar
@@ -378,6 +378,19 @@ LINUXINCLUDE    := -I$(srctree)/arch/$(hdr-arch)/include \
                    -include $(srctree)/include/linux/kconfig.h
 
 KBUILD_CPPFLAGS := -D__KERNEL__
+
+# Clang's target, assembler and GNU C version reach every compile, assemble,
+# linker-script preprocess and option probe through CLANG_FLAGS rather than
+# CC, so a CC given on the command line keeps them: vendor/lineage kernel.mk
+# passes CC="ccache clang".
+ifeq ($(LLVM),1)
+CLANG_FLAGS	:= --target=arm-linux-gnueabi -fintegrated-as \
+		   -fgnuc-version=4.9.0 -fno-addrsig -ferror-limit=0
+KBUILD_CPPFLAGS	+= $(CLANG_FLAGS)
+else
+CLANG_FLAGS	:=
+endif
+export CLANG_FLAGS
 
 KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common \
