@@ -38,7 +38,15 @@ wrapper-files := $(filter $(header-y), $(generic-y))
 # all headers files for this dir
 header-y      := $(filter-out $(generic-y), $(header-y))
 all-files     := $(header-y) $(objhdr-y) $(genhdr-y) $(wrapper-files)
-input-files   := $(addprefix $(srctree)/$(obj)/,$(header-y)) \
+
+# A header-y entry of include/<dir> that exists in include/uapi/<dir> is
+# installed from there under the same name, so a header split into a
+# userspace part in include/uapi exports as <dir>/<name>.
+uapi-dir      := $(if $(filter include/%,$(obj)),$(srctree)/$(patsubst include/%,include/uapi/%,$(obj)))
+uapi-header-y := $(if $(uapi-dir),$(notdir $(wildcard $(addprefix $(uapi-dir)/,$(header-y)))))
+src-header-y  := $(filter-out $(uapi-header-y),$(header-y))
+input-files   := $(addprefix $(srctree)/$(obj)/,$(src-header-y)) \
+                 $(addprefix $(uapi-dir)/,$(uapi-header-y)) \
                  $(addprefix $(objtree)/$(obj)/,$(objhdr-y)) \
                  $(addprefix $(objtree)/$(gen)/,$(genhdr-y))
 output-files  := $(addprefix $(install)/, $(all-files))
@@ -55,7 +63,8 @@ printdir = $(patsubst $(INSTALL_HDR_PATH)/%/,%,$(dir $@))
 quiet_cmd_install = INSTALL $(printdir) ($(words $(all-files))\
                             file$(if $(word 2, $(all-files)),s))
       cmd_install = \
-        $(PERL) $< $(srctree)/$(obj) $(install) $(SRCARCH) $(header-y); \
+        $(PERL) $< $(srctree)/$(obj) $(install) $(SRCARCH) $(src-header-y); \
+        $(if $(uapi-header-y),$(PERL) $< $(uapi-dir) $(install) $(SRCARCH) $(uapi-header-y);) \
         $(PERL) $< $(objtree)/$(obj) $(install) $(SRCARCH) $(objhdr-y); \
         $(PERL) $< $(objtree)/$(gen) $(install) $(SRCARCH) $(genhdr-y); \
         for F in $(wrapper-files); do                                   \
