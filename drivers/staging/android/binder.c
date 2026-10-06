@@ -78,8 +78,6 @@
 #include "binder_trace.h"
 
 /* Linux 3.4 exposes these operations under older names or in scheduler internals. */
-#define READ_ONCE(value) ACCESS_ONCE(value)
-#define WRITE_ONCE(value, new_value) (ACCESS_ONCE(value) = (new_value))
 #define list_first_entry_or_null(head, type, member) \
 	(!list_empty(head) ? list_first_entry(head, type, member) : NULL)
 #define MIN_NICE (-20)

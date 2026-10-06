@@ -31,8 +31,7 @@
 #include "binder_alloc.h"
 #include "binder_trace.h"
 
-/* Linux 3.4 uses ACCESS_ONCE and has no PAGE_ALIGNED helper. */
-#define WRITE_ONCE(value, new_value) (ACCESS_ONCE(value) = (new_value))
+/* Linux 3.4 has no PAGE_ALIGNED helper. */
 #define PAGE_ALIGNED(address) (!((unsigned long)(address) & (PAGE_SIZE - 1)))
 
 static DEFINE_MUTEX(binder_alloc_mmap_lock);
