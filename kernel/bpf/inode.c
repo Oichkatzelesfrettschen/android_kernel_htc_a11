@@ -12,6 +12,7 @@
  */
 
 #include <linux/init.h>
+#include <linux/module.h>
 #include <linux/magic.h>
 #include <linux/major.h>
 #include <linux/mount.h>

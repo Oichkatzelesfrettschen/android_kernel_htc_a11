@@ -10,6 +10,7 @@
 
 #include <linux/kernel.h>
 #include <linux/atomic.h>
+#include <linux/export.h>
 #include <linux/cgroup.h>
 #include <linux/slab.h>
 #include <linux/bpf.h>

@@ -10,6 +10,7 @@
  * General Public License for more details.
  */
 #include <linux/bpf.h>
+#include <linux/export.h>
 #include <linux/syscalls.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>

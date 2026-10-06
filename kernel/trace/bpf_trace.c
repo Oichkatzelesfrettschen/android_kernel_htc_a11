@@ -7,6 +7,7 @@
  */
 #include <linux/kernel.h>
 #include <linux/types.h>
+#include <linux/export.h>
 #include <linux/slab.h>
 #include <linux/bpf.h>
 #include <uapi/linux/bpf_perf_event.h>
