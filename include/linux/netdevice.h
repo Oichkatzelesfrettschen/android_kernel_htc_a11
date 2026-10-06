@@ -240,7 +240,7 @@ struct hh_cache {
 struct header_ops {
 	int	(*create) (struct sk_buff *skb, struct net_device *dev,
 			   unsigned short type, const void *daddr,
-			   const void *saddr, unsigned len);
+			   const void *saddr, unsigned int len);
 	int	(*parse)(const struct sk_buff *skb, unsigned char *haddr);
 	int	(*rebuild)(struct sk_buff *skb);
 	int	(*cache)(const struct neighbour *neigh, struct hh_cache *hh, __be16 type);
@@ -1384,7 +1384,7 @@ static inline void *skb_gro_network_header(struct sk_buff *skb)
 static inline int dev_hard_header(struct sk_buff *skb, struct net_device *dev,
 				  unsigned short type,
 				  const void *daddr, const void *saddr,
-				  unsigned len)
+				  unsigned int len)
 {
 	if (!dev->header_ops || !dev->header_ops->create)
 		return 0;
@@ -1432,7 +1432,7 @@ struct softnet_data {
 	unsigned int		input_queue_head;
 	unsigned int		input_queue_tail;
 #endif
-	unsigned		dropped;
+	unsigned int		dropped;
 	struct sk_buff_head	input_pkt_queue;
 	struct napi_struct	backlog;
 };
@@ -1453,6 +1453,8 @@ static inline void input_queue_tail_incr_save(struct softnet_data *sd,
 }
 
 DECLARE_PER_CPU_ALIGNED(struct softnet_data, softnet_data);
+#define XMIT_RECURSION_LIMIT   10
+DECLARE_PER_CPU(int, xmit_recursion);
 
 extern void __netif_schedule(struct Qdisc *q);
 
@@ -1586,7 +1588,7 @@ static inline void netdev_sent_queue(struct net_device *dev, unsigned int bytes)
 }
 
 static inline void netdev_tx_completed_queue(struct netdev_queue *dev_queue,
-					     unsigned pkts, unsigned bytes)
+					     unsigned int pkts, unsigned int bytes)
 {
 #ifdef CONFIG_BQL
 	if (unlikely(!bytes))
@@ -1605,7 +1607,7 @@ static inline void netdev_tx_completed_queue(struct netdev_queue *dev_queue,
 }
 
 static inline void netdev_completed_queue(struct net_device *dev,
-					  unsigned pkts, unsigned bytes)
+					  unsigned int pkts, unsigned int bytes)
 {
 	netdev_tx_completed_queue(netdev_get_tx_queue(dev, 0), pkts, bytes);
 }
@@ -1742,9 +1744,9 @@ extern void netdev_rx_handler_unregister(struct net_device *dev);
 extern bool		dev_valid_name(const char *name);
 extern int		dev_ioctl(struct net *net, unsigned int cmd, void __user *);
 extern int		dev_ethtool(struct net *net, struct ifreq *);
-extern unsigned		dev_get_flags(const struct net_device *);
+extern unsigned int	dev_get_flags(const struct net_device *);
 extern int		__dev_change_flags(struct net_device *, unsigned int flags);
-extern int		dev_change_flags(struct net_device *, unsigned);
+extern int		dev_change_flags(struct net_device *, unsigned int);
 extern void		__dev_notify_flags(struct net_device *, unsigned int old_flags);
 extern int		dev_change_name(struct net_device *, const char *);
 extern int		dev_set_alias(struct net_device *, const char *, size_t);
@@ -2085,7 +2087,6 @@ extern void netdev_stats_to_stats64(struct rtnl_link_stats64 *stats64,
 extern int		netdev_max_backlog;
 extern int		netdev_tstamp_prequeue;
 extern int		weight_p;
-extern int		bpf_jit_enable;
 extern int		netdev_set_master(struct net_device *dev, struct net_device *master);
 extern int netdev_set_bond_master(struct net_device *dev,
 				  struct net_device *master);

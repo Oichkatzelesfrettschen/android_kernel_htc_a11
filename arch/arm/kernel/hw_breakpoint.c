@@ -638,7 +638,7 @@ int arch_validate_hwbkpt_settings(struct perf_event *bp)
 	 * we can use the mismatch feature as a poor-man's hardware
 	 * single-step, but this only works for per-task breakpoints.
 	 */
-	if (!bp->overflow_handler && (arch_check_bp_in_kernelspace(bp) ||
+	if (is_default_overflow_handler(bp) && (arch_check_bp_in_kernelspace(bp) ||
 	    !core_has_mismatch_brps() || !bp->hw.bp_target)) {
 		pr_warning("overflow handler required but none found\n");
 		ret = -EINVAL;
@@ -735,7 +735,7 @@ static void watchpoint_handler(unsigned long addr, unsigned int fsr,
 		 * mismatch breakpoint so we can single-step over the
 		 * watchpoint trigger.
 		 */
-		if (!wp->overflow_handler)
+		if (is_default_overflow_handler(wp))
 			enable_single_step(wp, instruction_pointer(regs));
 
 unlock:
@@ -811,7 +811,7 @@ static void breakpoint_handler(unsigned long unknown, struct pt_regs *regs)
 			info->trigger = addr;
 			pr_debug("breakpoint fired: address = 0x%x\n", addr);
 			perf_bp_event(bp, regs);
-			if (!bp->overflow_handler)
+			if (is_default_overflow_handler(bp))
 				enable_single_step(bp, addr);
 			goto unlock;
 		}

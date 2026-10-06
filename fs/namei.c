@@ -2085,6 +2085,14 @@ out:
 }
 EXPORT_SYMBOL(kern_path_create);
 
+void done_path_create(struct path *path, struct dentry *dentry)
+{
+	dput(dentry);
+	mutex_unlock(&path->dentry->d_inode->i_mutex);
+	path_put(path);
+}
+EXPORT_SYMBOL(done_path_create);
+
 struct dentry *user_path_create(int dfd, const char __user *pathname, struct path *path, int is_dir)
 {
 	char *tmp = getname(pathname);
@@ -2187,9 +2195,7 @@ SYSCALL_DEFINE4(mknodat, int, dfd, const char __user *, filename, umode_t, mode,
 out_drop_write:
 	mnt_drop_write(path.mnt);
 out_dput:
-	dput(dentry);
-	mutex_unlock(&path.dentry->d_inode->i_mutex);
-	path_put(&path);
+	done_path_create(&path, dentry);
 
 	return error;
 }
@@ -2251,9 +2257,7 @@ SYSCALL_DEFINE3(mkdirat, int, dfd, const char __user *, pathname, umode_t, mode)
 out_drop_write:
 	mnt_drop_write(path.mnt);
 out_dput:
-	dput(dentry);
-	mutex_unlock(&path.dentry->d_inode->i_mutex);
-	path_put(&path);
+	done_path_create(&path, dentry);
 	return error;
 }
 
@@ -2538,9 +2542,7 @@ SYSCALL_DEFINE3(symlinkat, const char __user *, oldname,
 out_drop_write:
 	mnt_drop_write(path.mnt);
 out_dput:
-	dput(dentry);
-	mutex_unlock(&path.dentry->d_inode->i_mutex);
-	path_put(&path);
+	done_path_create(&path, dentry);
 out_putname:
 	putname(from);
 	return error;
@@ -2639,9 +2641,7 @@ SYSCALL_DEFINE5(linkat, int, olddfd, const char __user *, oldname,
 out_drop_write:
 	mnt_drop_write(new_path.mnt);
 out_dput:
-	dput(new_dentry);
-	mutex_unlock(&new_path.dentry->d_inode->i_mutex);
-	path_put(&new_path);
+	done_path_create(&new_path, new_dentry);
 out:
 	path_put(&old_path);
 
@@ -2654,7 +2654,8 @@ SYSCALL_DEFINE2(link, const char __user *, oldname, const char __user *, newname
 }
 
 static int vfs_rename_dir(struct vfsmount *mnt, struct inode *old_dir, struct dentry *old_dentry,
-			  struct inode *new_dir, struct dentry *new_dentry)
+			  struct inode *new_dir, struct dentry *new_dentry,
+			  unsigned int flags)
 {
 	int error = 0;
 	struct inode *target = new_dentry->d_inode;
@@ -2666,7 +2667,8 @@ static int vfs_rename_dir(struct vfsmount *mnt, struct inode *old_dir, struct de
 			return error;
 	}
 
-	error = security_inode_rename(old_dir, old_dentry, new_dir, new_dentry);
+	error = security_inode_rename(old_dir, old_dentry, new_dir, new_dentry,
+				      flags);
 	if (error)
 		return error;
 
@@ -2685,7 +2687,14 @@ static int vfs_rename_dir(struct vfsmount *mnt, struct inode *old_dir, struct de
 
 	if (target)
 		shrink_dcache_parent(new_dentry);
-	error = old_dir->i_op->rename(old_dir, old_dentry, new_dir, new_dentry);
+	if (!old_dir->i_op->rename2) {
+		error = old_dir->i_op->rename(old_dir, old_dentry,
+					      new_dir, new_dentry);
+	} else {
+		WARN_ON(old_dir->i_op->rename != NULL);
+		error = old_dir->i_op->rename2(old_dir, old_dentry,
+					       new_dir, new_dentry, flags);
+	}
 	if (error)
 		goto out;
 
@@ -2704,12 +2713,13 @@ out:
 }
 
 static int vfs_rename_other(struct inode *old_dir, struct dentry *old_dentry,
-			    struct inode *new_dir, struct dentry *new_dentry)
+			    struct inode *new_dir, struct dentry *new_dentry,
+				unsigned int flags)
 {
 	struct inode *target = new_dentry->d_inode;
 	int error;
 
-	error = security_inode_rename(old_dir, old_dentry, new_dir, new_dentry);
+	error = security_inode_rename(old_dir, old_dentry, new_dir, new_dentry, flags);
 	if (error)
 		return error;
 
@@ -2721,7 +2731,14 @@ static int vfs_rename_other(struct inode *old_dir, struct dentry *old_dentry,
 	if (d_mountpoint(old_dentry)||d_mountpoint(new_dentry))
 		goto out;
 
-	error = old_dir->i_op->rename(old_dir, old_dentry, new_dir, new_dentry);
+	if (!old_dir->i_op->rename2) {
+		error = old_dir->i_op->rename(old_dir, old_dentry,
+					      new_dir, new_dentry);
+	} else {
+		WARN_ON(old_dir->i_op->rename != NULL);
+		error = old_dir->i_op->rename2(old_dir, old_dentry,
+					       new_dir, new_dentry, flags);
+	}
 	if (error)
 		goto out;
 
@@ -2737,7 +2754,8 @@ out:
 }
 
 int vfs_rename2(struct vfsmount *mnt, struct inode *old_dir, struct dentry *old_dentry,
-	       struct inode *new_dir, struct dentry *new_dentry)
+	       struct inode *new_dir, struct dentry *new_dentry,
+	       unsigned int flags)
 {
 	int error;
 	int is_dir = S_ISDIR(old_dentry->d_inode->i_mode);
@@ -2757,15 +2775,15 @@ int vfs_rename2(struct vfsmount *mnt, struct inode *old_dir, struct dentry *old_
 	if (error)
 		return error;
 
-	if (!old_dir->i_op->rename)
+	if (!old_dir->i_op->rename && !old_dir->i_op->rename2)
 		return -EPERM;
 
 	old_name = fsnotify_oldname_init(old_dentry->d_name.name);
 
 	if (is_dir)
-		error = vfs_rename_dir(mnt, old_dir,old_dentry,new_dir,new_dentry);
+		error = vfs_rename_dir(mnt, old_dir, old_dentry, new_dir, new_dentry, flags);
 	else
-		error = vfs_rename_other(old_dir,old_dentry,new_dir,new_dentry);
+		error = vfs_rename_other(old_dir, old_dentry, new_dir, new_dentry, flags);
 	if (!error)
 		fsnotify_move(old_dir, new_dir, old_name, is_dir,
 			      new_dentry->d_inode, old_dentry);
@@ -2775,13 +2793,14 @@ int vfs_rename2(struct vfsmount *mnt, struct inode *old_dir, struct dentry *old_
 }
 
 int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
-	       struct inode *new_dir, struct dentry *new_dentry)
+	       struct inode *new_dir, struct dentry *new_dentry,
+	       unsigned int flags)
 {
-	return vfs_rename2(NULL, old_dir, old_dentry, new_dir, new_dentry);
+	return vfs_rename2(NULL, old_dir, old_dentry, new_dir, new_dentry, flags);
 }
 
-SYSCALL_DEFINE4(renameat, int, olddfd, const char __user *, oldname,
-		int, newdfd, const char __user *, newname)
+SYSCALL_DEFINE5(renameat2, int, olddfd, const char __user *, oldname,
+		int, newdfd, const char __user *, newname, unsigned int, flags)
 {
 	struct dentry *old_dir, *new_dir;
 	struct dentry *old_dentry, *new_dentry;
@@ -2790,6 +2809,9 @@ SYSCALL_DEFINE4(renameat, int, olddfd, const char __user *, oldname,
 	char *from;
 	char *to;
 	int error;
+
+	if (flags & ~RENAME_NOREPLACE)
+		return -EINVAL;
 
 	error = user_path_parent(olddfd, oldname, &oldnd, &from);
 	if (error)
@@ -2809,6 +2831,8 @@ SYSCALL_DEFINE4(renameat, int, olddfd, const char __user *, oldname,
 		goto exit2;
 
 	new_dir = newnd.path.dentry;
+	if (flags & RENAME_NOREPLACE)
+		error = -EEXIST;
 	if (newnd.last_type != LAST_NORM)
 		goto exit2;
 
@@ -2846,16 +2870,19 @@ SYSCALL_DEFINE4(renameat, int, olddfd, const char __user *, oldname,
 	error = -ENOTEMPTY;
 	if (new_dentry == trap)
 		goto exit5;
+	error = -EEXIST;
+	if ((flags & RENAME_NOREPLACE) && !d_is_negative(new_dentry))
+		goto exit5;
 
 	error = mnt_want_write(oldnd.path.mnt);
 	if (error)
 		goto exit5;
 	error = security_path_rename(&oldnd.path, old_dentry,
-				     &newnd.path, new_dentry);
+				     &newnd.path, new_dentry, flags);
 	if (error)
 		goto exit6;
 	error = vfs_rename2(oldnd.path.mnt, old_dir->d_inode, old_dentry,
-				   new_dir->d_inode, new_dentry);
+				   new_dir->d_inode, new_dentry, flags);
 exit6:
 	mnt_drop_write(oldnd.path.mnt);
 exit5:
@@ -2874,9 +2901,15 @@ exit:
 	return error;
 }
 
+SYSCALL_DEFINE4(renameat, int, olddfd, const char __user *, oldname,
+		int, newdfd, const char __user *, newname)
+{
+	return sys_renameat2(olddfd, oldname, newdfd, newname, 0);
+}
+
 SYSCALL_DEFINE2(rename, const char __user *, oldname, const char __user *, newname)
 {
-	return sys_renameat(AT_FDCWD, oldname, AT_FDCWD, newname);
+	return sys_renameat2(AT_FDCWD, oldname, AT_FDCWD, newname, 0);
 }
 
 int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen, const char *link)

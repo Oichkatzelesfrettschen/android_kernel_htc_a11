@@ -786,6 +786,18 @@ config DEBUG_BLK_CGROUP
 	Enable some debugging help. Currently it exports additional stat
 	files in a cgroup which can be useful for debugging.
 
+config CGROUP_BPF
+        bool "Support for eBPF programs attached to cgroups"
+        depends on BPF_SYSCALL
+        help
+          Allow attaching eBPF programs to a cgroup using the bpf(2)
+          syscall command BPF_PROG_ATTACH.
+
+          In which context these programs are accessed depends on the type
+          of attachment. For instance, programs that are attached using
+          BPF_CGROUP_INET_INGRESS will be executed on the ingress path of
+          inet sockets.
+
 endif # CGROUPS
 
 config CHECKPOINT_RESTORE
@@ -864,6 +876,34 @@ config SCHED_AUTOGROUP
 	  of workloads isolates aggressive CPU burners (like build jobs) from
 	  desktop applications.  Task group autogeneration is currently based
 	  upon task session.
+
+config ANDROID_TREBLE_SPOOF_KERNEL_VERSION
+	bool "TREBLE/BPF: report arbitrary kernel version to userspace"
+	default n
+	help
+		TREBLE: Workaround for system crash due to kernel version older than 3.17.
+
+		Android ART requires Linux 3.17 to use memfd_create() syscall and
+		fails if the kernel is too old. We already have backported memfd_create()
+		so we can mimic to 3.17+ kernel and properly run GSIs.
+
+		BPF: Since Android 12 iptables has been replaced by eBPF programs
+                which require eBPF features backported only to Linux 4.9.
+                Since we have eBPF backport in our 3.10 kernel, we can pretend to be
+                4.9.y for userspace to load bpf progs and successfully boot OS.
+
+config ANDROID_TREBLE_BYPASS_KERNEL_VERSION_CHECKS
+        bool "Report custom kernel version only when needed"
+	depends on ANDROID_TREBLE_SPOOF_KERNEL_VERSION
+        default n
+        help
+                Spoof kernel version only for system_server, bpfloader and perfetto.
+                User will see a real kernel version in /proc/version and Settings->About phone.
+
+config ANDROID_TREBLE_SPOOF_KERNEL_VERSION_PREFIX
+        string "Kernel version to prepend to real one"
+        depends on ANDROID_TREBLE_SPOOF_KERNEL_VERSION
+        default "3.17"
 
 config MM_OWNER
 	bool
@@ -958,6 +998,10 @@ config PANIC_TIMEOUT
 	default 0
 	help
 	  Set default panic timeout.
+
+# interpreter that classic socket filters depend on
+config BPF
+	bool
 
 menuconfig EXPERT
 	bool "Configure standard kernel features (expert users)"
@@ -1134,6 +1178,23 @@ config EVENTFD
 	  kernel notification (ie. KAIO) or userspace notifications.
 
 	  If unsure, say Y.
+
+# syscall, maps, verifier
+config BPF_SYSCALL
+	bool "Enable bpf() system call"
+	select ANON_INODES
+	select BPF
+	default n
+	help
+	  Enable the bpf() system call that allows to manipulate eBPF
+	  programs and maps via file descriptors.
+
+config BPF_JIT_ALWAYS_ON
+	bool "Permanently enable BPF JIT and remove BPF interpreter"
+	depends on BPF_SYSCALL && HAVE_EBPF_JIT && BPF_JIT
+	help
+	  Enables BPF JIT and removes BPF interpreter to avoid
+	  speculative execution of BPF instructions by the interpreter
 
 config SHMEM
 	bool "Use full shmem filesystem" if EXPERT

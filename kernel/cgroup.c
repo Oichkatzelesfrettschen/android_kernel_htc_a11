@@ -62,6 +62,7 @@
 #include <linux/flex_array.h> /* used in cgroup_attach_proc */
 
 #include <linux/atomic.h>
+#include <net/sock.h>
 
 /*
  * cgroup_mutex is the master lock.  Any modification to cgroup or its
@@ -246,6 +247,26 @@ inline int cgroup_is_removed(const struct cgroup *cgrp)
 {
 	return test_bit(CGRP_REMOVED, &cgrp->flags);
 }
+
+/**
+ * cgroup_is_descendant - test ancestry
+ * @cgrp: the cgroup to be tested
+ * @ancestor: possible ancestor of @cgrp
+ *
+ * Test whether @cgrp is a descendant of @ancestor.  It also returns %true
+ * if @cgrp == @ancestor.  This function is safe to call as long as @cgrp
+ * and @ancestor are accessible.
+ */
+bool cgroup_is_descendant(struct cgroup *cgrp, struct cgroup *ancestor)
+{
+	while (cgrp) {
+		if (cgrp == ancestor)
+			return true;
+		cgrp = cgrp->parent;
+	}
+	return false;
+}
+EXPORT_SYMBOL_GPL(cgroup_is_descendant);
 
 /* bits in struct cgroupfs_root flags field */
 enum {
@@ -868,9 +889,11 @@ static int cgroup_call_pre_destroy(struct cgroup *cgrp)
 	return ret;
 }
 
+static void cgroup_drop_root(struct cgroupfs_root *root);
+
 static void cgroup_diput(struct dentry *dentry, struct inode *inode)
 {
-	/* is dentry a directory ? if so, kfree() associated cgroup */
+	/* a directory owns the base lifetime reference of its cgroup */
 	if (S_ISDIR(inode->i_mode)) {
 		struct cgroup *cgrp = dentry->d_fsdata;
 		struct cgroup_subsys *ss;
@@ -905,10 +928,44 @@ static void cgroup_diput(struct dentry *dentry, struct inode *inode)
 		 */
 		BUG_ON(!list_empty(&cgrp->pidlists));
 
-		kfree_rcu(cgrp, rcu_head);
+		cgroup_put(cgrp);
 	}
 	iput(inode);
 }
+
+/*
+ * Runs once the last lifetime reference is gone. cgroup_put() is reached
+ * from sk_free() in softirq context, and cgroup_bpf_put() takes
+ * cgroup_mutex and the static-key mutex, so the release runs from a work
+ * item. No socket, bpf map, file descriptor user or child points at @cgrp
+ * any more, so its programs are released and the memory is freed after an
+ * RCU grace period. A top cgroup is embedded in its cgroupfs_root, which
+ * is freed with it.
+ */
+static void cgroup_release_workfn(struct work_struct *work)
+{
+	struct cgroup *cgrp = container_of(work, struct cgroup, release_work);
+	struct cgroup *parent = cgrp->parent;
+
+	mutex_lock(&cgroup_mutex);
+	cgroup_bpf_put(cgrp);
+	mutex_unlock(&cgroup_mutex);
+
+	if (cgrp == cgrp->top_cgroup) {
+		cgroup_drop_root(cgrp->root);
+		return;
+	}
+
+	kfree_rcu(cgrp, rcu_head);
+	cgroup_put(parent);
+}
+
+void cgroup_put(struct cgroup *cgrp)
+{
+	if (atomic_dec_and_test(&cgrp->refcnt))
+		schedule_work(&cgrp->release_work);
+}
+EXPORT_SYMBOL_GPL(cgroup_put);
 
 static int cgroup_delete(const struct dentry *d)
 {
@@ -1357,6 +1414,9 @@ static const struct super_operations cgroup_ops = {
 
 static void init_cgroup_housekeeping(struct cgroup *cgrp)
 {
+	atomic_set(&cgrp->refcnt, 1);
+	INIT_WORK(&cgrp->release_work, cgroup_release_workfn);
+	cgroup_bpf_init(cgrp);
 	INIT_LIST_HEAD(&cgrp->sibling);
 	INIT_LIST_HEAD(&cgrp->children);
 	INIT_LIST_HEAD(&cgrp->css_sets);
@@ -1641,6 +1701,7 @@ static struct dentry *cgroup_mount(struct file_system_type *fs_type,
 		cred = override_creds(&init_cred);
 		cgroup_populate_dir(root_cgrp);
 		revert_creds(cred);
+		cgroup_bpf_inherit(root_cgrp);
 		mutex_unlock(&cgroup_root_mutex);
 		mutex_unlock(&cgroup_mutex);
 		mutex_unlock(&inode->i_mutex);
@@ -1716,7 +1777,8 @@ static void cgroup_kill_sb(struct super_block *sb) {
 	mutex_unlock(&cgroup_mutex);
 
 	kill_litter_super(sb);
-	cgroup_drop_root(root);
+	/* the hierarchy is freed when its top cgroup's last reference drops */
+	cgroup_put(cgrp);
 }
 
 static struct file_system_type cgroup_fs_type = {
@@ -2179,6 +2241,35 @@ out_free_group_list:
 	return retval;
 }
 
+/**
+ * subsys_cgroup_allow_attach - allow_attach hook for controllers that let a
+ * CAP_SYS_NICE task move other users' tasks
+ * @cgrp: destination cgroup
+ * @tset: tasks being attached
+ *
+ * attach_task_by_pid() calls allow_attach only after the uid check fails, so
+ * a caller holding CAP_SYS_NICE (system_server applying task profiles) may
+ * move any task, and other callers keep the uid rule.
+ */
+int subsys_cgroup_allow_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
+{
+	const struct cred *cred = current_cred(), *tcred;
+	struct task_struct *task;
+
+	if (capable(CAP_SYS_NICE))
+		return 0;
+
+	cgroup_taskset_for_each(task, cgrp, tset) {
+		tcred = __task_cred(task);
+
+		if (current != task && cred->euid != tcred->uid &&
+		    cred->euid != tcred->suid)
+			return -EACCES;
+	}
+
+	return 0;
+}
+
 static int cgroup_allow_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
 {
 	struct cgroup_subsys *ss;
@@ -2555,7 +2646,7 @@ static int cgroup_rename(struct inode *old_dir, struct dentry *old_dentry,
 		return -EEXIST;
 	if (old_dir != new_dir)
 		return -EIO;
-	return simple_rename(old_dir, old_dentry, new_dir, new_dentry);
+	return simple_rename(old_dir, old_dentry, new_dir, new_dentry, 0);
 }
 
 static const struct file_operations cgroup_file_operations = {
@@ -2797,6 +2888,89 @@ static void cgroup_enable_task_cg_lists(void)
 	read_unlock(&tasklist_lock);
 	write_unlock(&css_set_lock);
 }
+
+/**
+ * cgroup_next_descendant_pre - find the next descendant for pre-order walk
+ * @pos: the current position (%NULL to initiate traversal)
+ * @cgroup: cgroup whose descendants to walk
+ *
+ * To be used by cgroup_for_each_descendant_pre().  Find the next
+ * descendant to visit for pre-order traversal of @cgroup's descendants.
+ */
+struct cgroup *cgroup_next_descendant_pre(struct cgroup *pos,
+					  struct cgroup *cgroup)
+{
+	struct cgroup *next;
+
+	WARN_ON_ONCE(!rcu_read_lock_held());
+
+	/* if first iteration, pretend we just visited @cgroup */
+	if (!pos)
+		pos = cgroup;
+
+	/* visit the first child if exists */
+	next = list_first_or_null_rcu(&pos->children, struct cgroup, sibling);
+	if (next)
+		return next;
+
+	/* no child, visit my or the closest ancestor's next sibling */
+	while (pos != cgroup) {
+		next = list_entry_rcu(pos->sibling.next, struct cgroup,
+				      sibling);
+		if (&next->sibling != &pos->parent->children)
+			return next;
+
+		pos = pos->parent;
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(cgroup_next_descendant_pre);
+
+static struct cgroup *cgroup_leftmost_descendant(struct cgroup *pos)
+{
+	struct cgroup *last;
+
+	do {
+		last = pos;
+		pos = list_first_or_null_rcu(&pos->children, struct cgroup,
+					     sibling);
+	} while (pos);
+
+	return last;
+}
+
+/**
+ * cgroup_next_descendant_post - find the next descendant for post-order walk
+ * @pos: the current position (%NULL to initiate traversal)
+ * @cgroup: cgroup whose descendants to walk
+ *
+ * To be used by cgroup_for_each_descendant_post().  Find the next
+ * descendant to visit for post-order traversal of @cgroup's descendants.
+ */
+struct cgroup *cgroup_next_descendant_post(struct cgroup *pos,
+					   struct cgroup *cgroup)
+{
+	struct cgroup *next;
+
+	WARN_ON_ONCE(!rcu_read_lock_held());
+
+	/* if first iteration, visit the leftmost descendant */
+	if (!pos) {
+		next = cgroup_leftmost_descendant(cgroup);
+		return next != cgroup ? next : NULL;
+	}
+
+	/* if there's an unvisited sibling, visit its leftmost descendant */
+	next = list_entry_rcu(pos->sibling.next, struct cgroup, sibling);
+	if (&next->sibling != &pos->parent->children)
+		return cgroup_leftmost_descendant(next);
+
+	/* no sibling left, visit parent */
+	next = pos->parent;
+	return next != cgroup ? next : NULL;
+}
+EXPORT_SYMBOL_GPL(cgroup_next_descendant_post);
 
 void cgroup_iter_start(struct cgroup *cgrp, struct cgroup_iter *it)
 	__acquires(css_set_lock)
@@ -3847,6 +4021,10 @@ static long cgroup_create(struct cgroup *parent, struct dentry *dentry,
 			ss->post_clone(cgrp);
 	}
 
+	err = cgroup_bpf_inherit(cgrp);
+	if(err)
+		goto err_destroy;
+
 	cgroup_lock_hierarchy(root);
 	list_add(&cgrp->sibling, &cgrp->parent->children);
 	cgroup_unlock_hierarchy(root);
@@ -3863,6 +4041,9 @@ static long cgroup_create(struct cgroup *parent, struct dentry *dentry,
 
 	err = cgroup_populate_dir(cgrp);
 	/* If err < 0, we have a half-filled directory - oh well ;) */
+
+	/* a child keeps its parent readable until the child is freed */
+	cgroup_get(parent);
 
 	mutex_unlock(&cgroup_mutex);
 	mutex_unlock(&cgrp->dentry->d_inode->i_mutex);
@@ -3882,6 +4063,7 @@ static long cgroup_create(struct cgroup *parent, struct dentry *dentry,
 		if (cgrp->subsys[ss->subsys_id])
 			ss->destroy(cgrp);
 	}
+	cgroup_bpf_put(cgrp);
 
 	mutex_unlock(&cgroup_mutex);
 
@@ -4722,34 +4904,6 @@ void cgroup_exit(struct task_struct *tsk, int run_callbacks)
 		put_css_set(cg);
 }
 
-/**
- * cgroup_is_descendant - see if @cgrp is a descendant of @task's cgrp
- * @cgrp: the cgroup in question
- * @task: the task in question
- *
- * See if @cgrp is a descendant of @task's cgroup in the appropriate
- * hierarchy.
- *
- * If we are sending in dummytop, then presumably we are creating
- * the top cgroup in the subsystem.
- *
- * Called only by the ns (nsproxy) cgroup.
- */
-int cgroup_is_descendant(const struct cgroup *cgrp, struct task_struct *task)
-{
-	int ret;
-	struct cgroup *target;
-
-	if (cgrp == dummytop)
-		return 1;
-
-	target = task_cgroup_from_root(task, cgrp->root);
-	while (cgrp != target && cgrp!= cgrp->top_cgroup)
-		cgrp = cgrp->parent;
-	ret = (cgrp == target);
-	return ret;
-}
-
 static void check_for_release(struct cgroup *cgrp)
 {
 	/* All of these checks rely on RCU to keep the cgroup
@@ -5169,6 +5323,105 @@ struct cgroup_subsys_state *cgroup_css_from_dir(struct file *f, int id)
 	css = cgrp->subsys[id];
 	return css ? css : ERR_PTR(-ENOENT);
 }
+
+struct cgroup *cgroup_get_from_fd(int fd)
+{
+	struct file *f;
+	struct inode *inode;
+	struct cgroup *cgrp;
+
+	f = fget_raw(fd);
+	if (!f)
+		return ERR_PTR(-EBADF);
+
+	inode = f->f_dentry->d_inode;
+	/* check in cgroup filesystem dir */
+	if (inode->i_op != &cgroup_dir_inode_operations){
+		fput(f);
+		return ERR_PTR(-EBADF);
+	}
+
+	/* the open directory pins the dentry and with it the base reference */
+	cgrp = __d_cgrp(f->f_dentry);
+	cgroup_get(cgrp);
+	fput(f);
+	return cgrp;
+
+}
+EXPORT_SYMBOL_GPL(cgroup_get_from_fd);
+
+/*
+ * Point a new socket at the calling task's cgroup in the cgroup2 compat
+ * hierarchy, the one cgroup-bpf programs attach to, and take a lifetime
+ * reference on it. Socket allocation may run in atomic context, so the
+ * lookup holds only rcu_read_lock(), which keeps the task's css_set alive,
+ * and css_set_lock, which keeps its cg_links list and every linked cgroup
+ * in place. A cgroup linked to a css_set still holds its base reference,
+ * and cgroup_kill_sb() unlinks the top cgroup under the same lock before
+ * dropping its base reference, so the hierarchy is resolved on every call
+ * and no root pointer outlives an unmount. A socket allocated in interrupt
+ * context belongs to no task and gets no cgroup.
+ */
+void cgroup_sk_alloc(struct cgroup **skcg)
+{
+	struct cg_cgroup_link *link;
+	struct css_set *cg;
+
+	*skcg = NULL;
+	if (in_interrupt())
+		return;
+
+	rcu_read_lock();
+	read_lock(&css_set_lock);
+	cg = rcu_dereference(current->cgroups);
+	list_for_each_entry(link, &cg->cg_links, cg_link_list) {
+		struct cgroup *cgrp = link->cgrp;
+
+		if (!test_bit(ROOT_CGROUP2, &cgrp->root->flags))
+			continue;
+		if (cgroup_tryget(cgrp))
+			*skcg = cgrp;
+		break;
+	}
+	read_unlock(&css_set_lock);
+	rcu_read_unlock();
+}
+
+void cgroup_sk_clone(struct cgroup *skcg)
+{
+	/* Socket clone path */
+	if (skcg)
+		cgroup_get(skcg);
+}
+
+void cgroup_sk_free(struct cgroup *skcg)
+{
+	if (skcg)
+		cgroup_put(skcg);
+}
+
+#ifdef CONFIG_CGROUP_BPF
+int cgroup_bpf_attach(struct cgroup *cgrp, struct bpf_prog *prog,
+		      enum bpf_attach_type type, u32 flags)
+{
+	int ret;
+
+	mutex_lock(&cgroup_mutex);
+	ret = __cgroup_bpf_attach(cgrp, prog, type, flags);
+	mutex_unlock(&cgroup_mutex);
+	return ret;
+}
+int cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
+		      enum bpf_attach_type type, u32 flags)
+{
+	int ret;
+
+	mutex_lock(&cgroup_mutex);
+	ret = __cgroup_bpf_detach(cgrp, prog, type, flags);
+	mutex_unlock(&cgroup_mutex);
+	return ret;
+}
+#endif /* CONFIG_CGROUP_BPF */
 
 #ifdef CONFIG_CGROUP_DEBUG
 static struct cgroup_subsys_state *debug_create(struct cgroup *cont)

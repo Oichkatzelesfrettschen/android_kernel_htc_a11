@@ -41,6 +41,7 @@
 
 #define SO_ATTACH_FILTER	0x001a
 #define SO_DETACH_FILTER        0x001b
+#define SO_GET_FILTER		SO_ATTACH_FILTER
 
 #define SO_PEERNAME		0x001c
 #define SO_TIMESTAMP		0x001d
@@ -65,6 +66,9 @@
 /* Instruct lower device to use last 4-bytes of skb data as FCS */
 #define SO_NOFCS		0x0027
 
+
+#define SO_ATTACH_BPF		0x0034
+#define SO_DETACH_BPF		SO_DETACH_FILTER
 
 /* Security levels - as per NRL IPv6 - don't actually do anything */
 #define SO_SECURITY_AUTHENTICATION		0x5001

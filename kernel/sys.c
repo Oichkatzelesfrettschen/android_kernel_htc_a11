@@ -1039,14 +1039,51 @@ static int override_release(char __user *release, size_t len)
 	return ret;
 }
 
+#ifdef CONFIG_ANDROID_TREBLE_SPOOF_KERNEL_VERSION
+/*
+ * uname() reports CONFIG_ANDROID_TREBLE_SPOOF_KERNEL_VERSION_PREFIX, a dash
+ * and the real release, because bpfloader and netd select their eBPF program
+ * sets by the kernel version uname() returns. The rewrite applies to a copy
+ * taken under uts_sem, so the namespace that sethostname() and
+ * setdomainname() modify and /proc/sys/kernel/osrelease reports keeps the
+ * real release. With CONFIG_ANDROID_TREBLE_BYPASS_KERNEL_VERSION_CHECKS only
+ * the listed tasks see the prefix.
+ */
+static void uname_spoof_release(struct new_utsname *name)
+{
+	char release[sizeof(name->release)];
+
+#ifdef CONFIG_ANDROID_TREBLE_BYPASS_KERNEL_VERSION_CHECKS
+	if (strcmp(current->comm, "system_server") &&
+	    strcmp(current->comm, "zygote") &&
+	    strcmp(current->comm, "bpfloader") &&
+	    strcmp(current->comm, "netbpfload") &&
+	    strcmp(current->comm, "perfetto") &&
+	    strcmp(current->comm, "init"))
+		return;
+#endif
+	snprintf(release, sizeof(release), "%s-%s",
+		 CONFIG_ANDROID_TREBLE_SPOOF_KERNEL_VERSION_PREFIX,
+		 name->release);
+	strlcpy(name->release, release, sizeof(name->release));
+}
+#else
+static inline void uname_spoof_release(struct new_utsname *name)
+{
+}
+#endif
+
 SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 {
+	struct new_utsname tmp;
 	int errno = 0;
 
 	down_read(&uts_sem);
-	if (copy_to_user(name, utsname(), sizeof *name))
-		errno = -EFAULT;
+	memcpy(&tmp, utsname(), sizeof(tmp));
 	up_read(&uts_sem);
+	uname_spoof_release(&tmp);
+	if (copy_to_user(name, &tmp, sizeof(*name)))
+		errno = -EFAULT;
 
 	if (!errno && override_release(name->release, sizeof(name->release)))
 		errno = -EFAULT;
@@ -1058,15 +1095,18 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 #ifdef __ARCH_WANT_SYS_OLD_UNAME
 SYSCALL_DEFINE1(uname, struct old_utsname __user *, name)
 {
+	struct new_utsname tmp;
 	int error = 0;
 
 	if (!name)
 		return -EFAULT;
 
 	down_read(&uts_sem);
-	if (copy_to_user(name, utsname(), sizeof(*name)))
-		error = -EFAULT;
+	memcpy(&tmp, utsname(), sizeof(tmp));
 	up_read(&uts_sem);
+	uname_spoof_release(&tmp);
+	if (copy_to_user(name, &tmp, sizeof(*name)))
+		error = -EFAULT;
 
 	if (!error && override_release(name->release, sizeof(name->release)))
 		error = -EFAULT;
@@ -1077,6 +1117,7 @@ SYSCALL_DEFINE1(uname, struct old_utsname __user *, name)
 
 SYSCALL_DEFINE1(olduname, struct oldold_utsname __user *, name)
 {
+	struct new_utsname tmp;
 	int error;
 
 	if (!name)
@@ -1085,22 +1126,25 @@ SYSCALL_DEFINE1(olduname, struct oldold_utsname __user *, name)
 		return -EFAULT;
 
 	down_read(&uts_sem);
-	error = __copy_to_user(&name->sysname, &utsname()->sysname,
+	memcpy(&tmp, utsname(), sizeof(tmp));
+	up_read(&uts_sem);
+	uname_spoof_release(&tmp);
+
+	error = __copy_to_user(&name->sysname, &tmp.sysname,
 			       __OLD_UTS_LEN);
 	error |= __put_user(0, name->sysname + __OLD_UTS_LEN);
-	error |= __copy_to_user(&name->nodename, &utsname()->nodename,
+	error |= __copy_to_user(&name->nodename, &tmp.nodename,
 				__OLD_UTS_LEN);
 	error |= __put_user(0, name->nodename + __OLD_UTS_LEN);
-	error |= __copy_to_user(&name->release, &utsname()->release,
+	error |= __copy_to_user(&name->release, &tmp.release,
 				__OLD_UTS_LEN);
 	error |= __put_user(0, name->release + __OLD_UTS_LEN);
-	error |= __copy_to_user(&name->version, &utsname()->version,
+	error |= __copy_to_user(&name->version, &tmp.version,
 				__OLD_UTS_LEN);
 	error |= __put_user(0, name->version + __OLD_UTS_LEN);
-	error |= __copy_to_user(&name->machine, &utsname()->machine,
+	error |= __copy_to_user(&name->machine, &tmp.machine,
 				__OLD_UTS_LEN);
 	error |= __put_user(0, name->machine + __OLD_UTS_LEN);
-	up_read(&uts_sem);
 
 	if (!error && override_architecture(name))
 		error = -EFAULT;

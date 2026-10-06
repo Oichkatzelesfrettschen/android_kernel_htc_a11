@@ -1308,9 +1308,7 @@ retry:
 	skb->dev = dev;
 	skb->priority = sk->sk_priority;
 	skb->mark = sk->sk_mark;
-	err = sock_tx_timestamp(sk, &skb_shinfo(skb)->tx_flags);
-	if (err < 0)
-		goto out_unlock;
+	sock_tx_timestamp(sk, &skb_shinfo(skb)->tx_flags);
 
 	if (unlikely(extra_len == 4))
 		skb->no_fcs = 1;
@@ -1332,16 +1330,16 @@ out_free:
 	return err;
 }
 
-static unsigned int run_filter(const struct sk_buff *skb,
-				      const struct sock *sk,
-				      unsigned int res)
+static unsigned int run_filter(struct sk_buff *skb,
+			      const struct sock *sk,
+			      unsigned int res)
 {
 	struct sk_filter *filter;
 
 	rcu_read_lock();
 	filter = rcu_dereference(sk->sk_filter);
 	if (filter != NULL)
-		res = SK_RUN_FILTER(filter, skb);
+		res = bpf_prog_run_clear_cb(filter->prog, skb);
 	rcu_read_unlock();
 
 	return res;
@@ -1508,7 +1506,7 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 		macoff = netoff = TPACKET_ALIGN(po->tp_hdrlen) + 16 +
 				  po->tp_reserve;
 	} else {
-		unsigned maclen = skb_network_offset(skb);
+		unsigned int maclen = skb_network_offset(skb);
 		netoff = TPACKET_ALIGN(po->tp_hdrlen +
 				       (maclen < 16 ? 16 : maclen)) +
 			po->tp_reserve;
@@ -2073,9 +2071,7 @@ static int packet_snd(struct socket *sock,
 	err = skb_copy_datagram_from_iovec(skb, offset, msg->msg_iov, 0, len);
 	if (err)
 		goto out_free;
-	err = sock_tx_timestamp(sk, &skb_shinfo(skb)->tx_flags);
-	if (err < 0)
-		goto out_free;
+	sock_tx_timestamp(sk, &skb_shinfo(skb)->tx_flags);
 
 	if (!gso_type && (len > dev->mtu + reserve + extra_len)) {
 		struct ethhdr *ehdr;
