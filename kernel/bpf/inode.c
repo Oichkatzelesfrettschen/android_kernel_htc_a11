@@ -343,6 +343,8 @@ static struct bpf_prog *__get_prog_inode(struct inode *inode, enum bpf_prog_type
 		return ERR_PTR(-EACCES);
 
 	prog = inode->i_private;
+	if (prog->type != type)
+		return ERR_PTR(-EINVAL);
 
 	ret = security_bpf_prog(prog);
 	if (ret < 0)
