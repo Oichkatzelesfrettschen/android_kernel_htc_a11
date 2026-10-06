@@ -505,6 +505,19 @@ config TOUCHSCREEN_ONE_LAYER_HIMAX
 		default n
 
 
+config TOUCHSCREEN_HIMAX_OFFMODE_CHARGING_PROBE
+	bool "Probe the HIMAX HM852xD touchscreen in off-mode charging"
+	depends on TOUCHSCREEN_HIMAX || TOUCHSCREEN_ONE_LAYER_HIMAX
+	default n
+	help
+	  HBOOT boots the recovery partition with
+	  androidboot.mode=offmode_charging when power arrives on the USB
+	  cable. Without this option the probe puts the touch controller
+	  into deep standby and returns -ENODEV in that mode, which suits a
+	  charger UI. Say Y for a kernel that runs an interactive touch
+	  recovery, so the touchscreen registers in every boot mode HBOOT
+	  selects. MFG_MODE_POWER_TEST still parks the controller.
+
 config TOUCHSCREEN_HIMAX_ESD_EN
         tristate "HIMAX HM852xD ESD recovery function"
 		depends on I2C
