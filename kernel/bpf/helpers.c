@@ -15,7 +15,6 @@
 #include <linux/smp.h>
 #include <linux/ktime.h>
 #include <linux/sched.h>
-#include <linux/uidgid.h>
 #include <linux/filter.h>
 
 /* If kernel subsystem is allowing eBPF programs to call this function,
@@ -123,15 +122,14 @@ const struct bpf_func_proto bpf_get_current_pid_tgid_proto = {
 BPF_CALL_0(bpf_get_current_uid_gid)
 {
 	struct task_struct *task = current;
-	kuid_t uid;
-	kgid_t gid;
+	uid_t uid;
+	gid_t gid;
 
 	if (unlikely(!task))
 		return -EINVAL;
 
 	current_uid_gid(&uid, &gid);
-	return (u64) from_kgid(&init_user_ns, gid) << 32 |
-		     from_kuid(&init_user_ns, uid);
+	return (u64) gid << 32 | uid;
 }
 
 const struct bpf_func_proto bpf_get_current_uid_gid_proto = {

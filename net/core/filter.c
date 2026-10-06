@@ -42,6 +42,7 @@
 #include <asm/uaccess.h>
 #include <asm/unaligned.h>
 #include <linux/filter.h>
+#include <linux/highuid.h>
 #include <linux/ratelimit.h>
 #include <linux/seccomp.h>
 #include <linux/if_vlan.h>
@@ -2122,12 +2123,10 @@ static const struct bpf_func_proto bpf_get_socket_cookie_proto = {
 BPF_CALL_1(bpf_get_socket_uid, struct sk_buff *, skb)
 {
 	struct sock *sk = skb->sk;
-	kuid_t kuid;
 
 	if (!sk || !sk_fullsock(sk))
 		return overflowuid;
-	kuid = sock_net_uid(sock_net(sk), sk);
-	return from_kuid_munged(sock_net(sk)->user_ns, kuid);
+	return sock_i_uid(sk);
 }
 
 static const struct bpf_func_proto bpf_get_socket_uid_proto = {
