@@ -37,9 +37,7 @@ MODULE_ALIAS("ipt_connmark");
 MODULE_ALIAS("ip6t_connmark");
 
 static unsigned int
-connmark_tg_shift(struct sk_buff *skb,
-		const struct xt_connmark_tginfo1 *info,
-		u8 shift_bits, u8 shift_dir)
+connmark_tg_shift(struct sk_buff *skb, const struct xt_connmark_tginfo2 *info)
 {
 	enum ip_conntrack_info ctinfo;
 	struct nf_conn *ct;
@@ -52,10 +50,10 @@ connmark_tg_shift(struct sk_buff *skb,
 	switch (info->mode) {
 	case XT_CONNMARK_SET:
 		newmark = (ct->mark & ~info->ctmask) ^ info->ctmark;
-		if (shift_dir == D_SHIFT_RIGHT)
-			newmark >>= shift_bits;
+		if (info->shift_dir == D_SHIFT_RIGHT)
+			newmark >>= info->shift_bits;
 		else
-			newmark <<= shift_bits;
+			newmark <<= info->shift_bits;
 		if (ct->mark != newmark) {
 			ct->mark = newmark;
 			nf_conntrack_event_cache(IPCT_MARK, ct);
@@ -64,10 +62,10 @@ connmark_tg_shift(struct sk_buff *skb,
 	case XT_CONNMARK_SAVE:
 		newmark = (ct->mark & ~info->ctmask) ^
 			  (skb->mark & info->nfmask);
-		if (shift_dir == D_SHIFT_RIGHT)
-			newmark >>= shift_bits;
+		if (info->shift_dir == D_SHIFT_RIGHT)
+			newmark >>= info->shift_bits;
 		else
-			newmark <<= shift_bits;
+			newmark <<= info->shift_bits;
 		if (ct->mark != newmark) {
 			ct->mark = newmark;
 			nf_conntrack_event_cache(IPCT_MARK, ct);
@@ -76,10 +74,10 @@ connmark_tg_shift(struct sk_buff *skb,
 	case XT_CONNMARK_RESTORE:
 		newmark = (skb->mark & ~info->nfmask) ^
 			  (ct->mark & info->ctmask);
-		if (shift_dir == D_SHIFT_RIGHT)
-			newmark >>= shift_bits;
+		if (info->shift_dir == D_SHIFT_RIGHT)
+			newmark >>= info->shift_bits;
 		else
-			newmark <<= shift_bits;
+			newmark <<= info->shift_bits;
 		skb->mark = newmark;
 		break;
 	}
@@ -90,8 +88,14 @@ static unsigned int
 connmark_tg(struct sk_buff *skb, const struct xt_action_param *par)
 {
 	const struct xt_connmark_tginfo1 *info = par->targinfo;
+	const struct xt_connmark_tginfo2 info2 = {
+		.ctmark	= info->ctmark,
+		.ctmask	= info->ctmask,
+		.nfmask	= info->nfmask,
+		.mode	= info->mode,
+	};
 
-	return connmark_tg_shift(skb, info, 0, 0);
+	return connmark_tg_shift(skb, &info2);
 }
 
 static unsigned int
@@ -99,8 +103,7 @@ connmark_tg_v2(struct sk_buff *skb, const struct xt_action_param *par)
 {
 	const struct xt_connmark_tginfo2 *info = par->targinfo;
 
-	return connmark_tg_shift(skb, (const struct xt_connmark_tginfo1 *)info,
-				 info->shift_bits, info->shift_dir);
+	return connmark_tg_shift(skb, info);
 }
 
 static int connmark_tg_check(const struct xt_tgchk_param *par)
