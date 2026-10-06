@@ -195,14 +195,16 @@ int cgroup_bpf_inherit(struct cgroup *cgrp)
  */
 #define	NR ARRAY_SIZE(cgrp->bpf.effective)
 	struct bpf_prog_array __rcu *arrays[NR] = {};
-	int i;
+	int i, err;
 
 	for (i = 0; i < NR; i++)
 		INIT_LIST_HEAD(&cgrp->bpf.progs[i]);
 
-	for (i = 0; i < NR; i++)
-		if (compute_effective_progs(cgrp, i, &arrays[i]))
+	for (i = 0; i < NR; i++) {
+		err = compute_effective_progs(cgrp, i, &arrays[i]);
+		if (err)
 			goto cleanup;
+	}
 
 	for (i = 0; i < NR; i++)
 		activate_effective_progs(cgrp, i, arrays[i]);
@@ -211,7 +213,7 @@ int cgroup_bpf_inherit(struct cgroup *cgrp)
 cleanup:
 	for (i = 0; i < NR; i++)
 		effective_progs_free(arrays[i]);
-	return -ENOMEM;
+	return err;
 }
 
 #define BPF_CGROUP_MAX_PROGS 64
