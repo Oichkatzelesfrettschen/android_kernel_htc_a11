@@ -419,7 +419,11 @@ static int validate_change(const struct cpuset *cur, const struct cpuset *trial)
 
 	/* Each of our child cpusets must be a subset of us */
 	list_for_each_entry(cont, &cur->css.cgroup->children, sibling) {
-		if (!is_cpuset_subset(cgroup_cs(cont), trial))
+		struct cpuset *child = cgroup_cs(cont);
+
+		if (!is_cpuset_subset(child, trial) ||
+		    !cpumask_subset(child->cpus_requested,
+				    trial->cpus_requested))
 			return -EBUSY;
 	}
 
@@ -430,7 +434,8 @@ static int validate_change(const struct cpuset *cur, const struct cpuset *trial)
 	par = cur->parent;
 
 	/* We must be a subset of our parent cpuset */
-	if (!is_cpuset_subset(trial, par))
+	if (!is_cpuset_subset(trial, par) ||
+	    !cpumask_subset(trial->cpus_requested, par->cpus_requested))
 		return -EACCES;
 
 	/*
@@ -441,7 +446,9 @@ static int validate_change(const struct cpuset *cur, const struct cpuset *trial)
 		c = cgroup_cs(cont);
 		if ((is_cpu_exclusive(trial) || is_cpu_exclusive(c)) &&
 		    c != cur &&
-		    cpumask_intersects(trial->cpus_allowed, c->cpus_allowed))
+		    (cpumask_intersects(trial->cpus_allowed, c->cpus_allowed) ||
+		     cpumask_intersects(trial->cpus_requested,
+					c->cpus_requested)))
 			return -EINVAL;
 		if ((is_mem_exclusive(trial) || is_mem_exclusive(c)) &&
 		    c != cur &&
@@ -1601,10 +1608,12 @@ out:
 
 static size_t cpuset_sprintf_cpulist(char *page, struct cpuset *cs)
 {
+	const struct cpumask *cpus;
 	size_t count;
 
 	mutex_lock(&callback_mutex);
-	count = cpulist_scnprintf(page, PAGE_SIZE, cs->cpus_requested);
+	cpus = cs == &top_cpuset ? cs->cpus_allowed : cs->cpus_requested;
+	count = cpulist_scnprintf(page, PAGE_SIZE, cpus);
 	mutex_unlock(&callback_mutex);
 
 	return count;
@@ -2071,19 +2080,18 @@ static void scan_for_empty_cpusets(struct cpuset *root)
 			list_add_tail(&child->stack_list, &queue);
 		}
 
-		/* cpuset_update_active_cpus() sets top_cpuset itself */
-		if (cp == &top_cpuset)
-			continue;
-
-		/*
-		 * Rebuild the effective CPUs from the request, so a CPU that
-		 * hotplug brings back online rejoins every cpuset that asked
-		 * for it.  The queue is breadth-first, so cp->parent already
-		 * holds its own rebuilt mask.
-		 */
-		cpumask_and(&new_cpus, cp->cpus_requested,
-			    cp->parent->cpus_allowed);
-		cpumask_and(&new_cpus, &new_cpus, cpu_active_mask);
+		if (cp == &top_cpuset) {
+			/* cpuset_update_active_cpus() already rebuilt the root CPUs. */
+			cpumask_copy(&new_cpus, cp->cpus_allowed);
+		} else {
+			/*
+			 * Rebuild effective CPUs from the request. The breadth-first
+			 * walk has already rebuilt the parent's mask.
+			 */
+			cpumask_and(&new_cpus, cp->cpus_requested,
+				    cp->parent->cpus_allowed);
+			cpumask_and(&new_cpus, &new_cpus, cpu_active_mask);
+		}
 
 		/* Continue past cpusets whose cpus and mems are unchanged */
 		if (cpumask_equal(cp->cpus_allowed, &new_cpus) &&
@@ -2094,10 +2102,16 @@ static void scan_for_empty_cpusets(struct cpuset *root)
 
 		/* Apply the rebuilt cpus and remove offline mems. */
 		mutex_lock(&callback_mutex);
-		cpumask_copy(cp->cpus_allowed, &new_cpus);
+		if (cp != &top_cpuset)
+			cpumask_copy(cp->cpus_allowed, &new_cpus);
 		nodes_and(cp->mems_allowed, cp->mems_allowed,
 						node_states[N_HIGH_MEMORY]);
 		mutex_unlock(&callback_mutex);
+
+		if (cp == &top_cpuset) {
+			update_tasks_nodemask(cp, &oldmems, NULL);
+			continue;
+		}
 
 		/* Move tasks from the empty cpuset to a parent */
 		if (cpumask_empty(cp->cpus_allowed) ||
