@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/mount.h>
+#include <linux/kobject.h>
 #include <linux/namei.h>
 #include <linux/tracefs.h>
 #include <linux/fsnotify.h>
@@ -32,6 +33,7 @@ static int tracefs_mount_count;
 static bool tracefs_registered;
 static struct dentry *tracefs_root_dentry;
 static DEFINE_MUTEX(tracefs_root_lock);
+static struct kobject *tracefs_kobj;
 
 static ssize_t default_read_file(struct file *file, char __user *buf,
 				 size_t count, loff_t *ppos)
@@ -523,10 +525,19 @@ static int __init tracefs_init(void)
 {
 	int retval;
 
-	retval = register_filesystem(&trace_fs_type);
-	if (!retval)
-		tracefs_registered = true;
+	tracefs_kobj = kobject_create_and_add("tracing", kernel_kobj);
+	if (!tracefs_kobj)
+		return -ENOMEM;
 
-	return retval;
+	retval = register_filesystem(&trace_fs_type);
+	if (retval) {
+		kobject_put(tracefs_kobj);
+		tracefs_kobj = NULL;
+		return retval;
+	}
+
+	tracefs_registered = true;
+
+	return 0;
 }
 core_initcall(tracefs_init);
