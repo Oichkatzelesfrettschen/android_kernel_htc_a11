@@ -413,6 +413,60 @@ struct dentry *debugfs_create_dir(const char *name, struct dentry *parent)
 }
 EXPORT_SYMBOL_GPL(debugfs_create_dir);
 
+struct debugfs_automount_data {
+	struct vfsmount *(*mount)(void *);
+	void *data;
+};
+
+static struct vfsmount *debugfs_d_automount(struct path *path)
+{
+	struct debugfs_automount_data *automount = path->dentry->d_fsdata;
+
+	if (!automount)
+		return ERR_PTR(-EINVAL);
+
+	return automount->mount(automount->data);
+}
+
+static void debugfs_d_release(struct dentry *dentry)
+{
+	kfree(dentry->d_fsdata);
+}
+
+static const struct dentry_operations debugfs_automount_dops = {
+	.d_automount = debugfs_d_automount,
+	.d_release = debugfs_d_release,
+};
+
+struct dentry *debugfs_create_automount(const char *name,
+					struct dentry *parent,
+					struct vfsmount *(*mount)(void *),
+					void *data)
+{
+	struct debugfs_automount_data *automount;
+	struct dentry *dentry;
+
+	if (!mount)
+		return ERR_PTR(-EINVAL);
+
+	automount = kzalloc(sizeof(*automount), GFP_KERNEL);
+	if (!automount)
+		return ERR_PTR(-ENOMEM);
+
+	automount->mount = mount;
+	automount->data = data;
+	dentry = debugfs_create_dir(name, parent);
+	if (IS_ERR_OR_NULL(dentry)) {
+		kfree(automount);
+		return dentry;
+	}
+
+	dentry->d_fsdata = automount;
+	d_set_d_op(dentry, &debugfs_automount_dops);
+	return dentry;
+}
+EXPORT_SYMBOL_GPL(debugfs_create_automount);
+
 /**
  * debugfs_create_symlink- create a symbolic link in the debugfs filesystem
  * @name: a pointer to a string containing the name of the symbolic link to
@@ -688,4 +742,3 @@ static int __init debugfs_init(void)
 	return retval;
 }
 core_initcall(debugfs_init);
-

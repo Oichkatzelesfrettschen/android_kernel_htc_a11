@@ -20,6 +20,7 @@
 #include <linux/notifier.h>
 #include <linux/irqflags.h>
 #include <linux/debugfs.h>
+#include <linux/tracefs.h>
 #include <linux/pagemap.h>
 #include <linux/hardirq.h>
 #include <linux/linkage.h>
@@ -33,6 +34,7 @@
 #include <linux/string.h>
 #include <linux/rwsem.h>
 #include <linux/slab.h>
+#include <linux/mount.h>
 #include <linux/ctype.h>
 #include <linux/init.h>
 #include <linux/poll.h>
@@ -3920,6 +3922,26 @@ static const struct file_operations tracing_dyn_info_fops = {
 
 static struct dentry *d_tracer;
 
+static struct vfsmount *tracefs_debugfs_automount(void *data)
+{
+	struct file_system_type *filesystem;
+	struct vfsmount *mount;
+
+	(void)data;
+
+	filesystem = get_fs_type("tracefs");
+	if (!filesystem)
+		return NULL;
+
+	mount = vfs_kern_mount(filesystem, 0, "tracefs", NULL);
+	put_filesystem(filesystem);
+	if (IS_ERR(mount))
+		return NULL;
+
+	mntget(mount);
+	return mount;
+}
+
 struct dentry *tracing_init_dentry(void)
 {
 	static int once;
@@ -3927,15 +3949,24 @@ struct dentry *tracing_init_dentry(void)
 	if (d_tracer)
 		return d_tracer;
 
-	if (!debugfs_initialized())
-		return NULL;
+	d_tracer = tracefs_mount_root();
 
-	d_tracer = debugfs_create_dir("tracing", NULL);
-
-	if (!d_tracer && !once) {
-		once = 1;
-		pr_warning("Could not create debugfs directory 'tracing'\n");
+	if (IS_ERR_OR_NULL(d_tracer)) {
+		d_tracer = NULL;
+		if (!once) {
+			once = 1;
+			pr_warning("Could not mount tracefs\n");
+		}
 		return NULL;
+	}
+
+	if (debugfs_initialized()) {
+		struct dentry *compatibility_mountpoint;
+
+		compatibility_mountpoint = debugfs_create_automount(
+			"tracing", NULL, tracefs_debugfs_automount, NULL);
+		if (IS_ERR_OR_NULL(compatibility_mountpoint))
+			pr_warning("Could not create debugfs tracefs compatibility mount\n");
 	}
 
 	return d_tracer;
@@ -3956,7 +3987,7 @@ struct dentry *tracing_dentry_percpu(void)
 	if (!d_tracer)
 		return NULL;
 
-	d_percpu = debugfs_create_dir("per_cpu", d_tracer);
+	d_percpu = tracefs_create_dir("per_cpu", d_tracer);
 
 	if (!d_percpu && !once) {
 		once = 1;
@@ -3974,7 +4005,7 @@ static void tracing_init_debugfs_percpu(long cpu)
 	char cpu_dir[30]; 
 
 	snprintf(cpu_dir, 30, "cpu%ld", cpu);
-	d_cpu = debugfs_create_dir(cpu_dir, d_percpu);
+	d_cpu = tracefs_create_dir(cpu_dir, d_percpu);
 	if (!d_cpu) {
 		pr_warning("Could not create debugfs '%s' entry\n", cpu_dir);
 		return;
@@ -4108,7 +4139,7 @@ struct dentry *trace_create_file(const char *name,
 {
 	struct dentry *ret;
 
-	ret = debugfs_create_file(name, mode, parent, data, fops);
+	ret = tracefs_create_file(name, mode, parent, data, fops);
 	if (!ret)
 		pr_warning("Could not create debugfs '%s' entry\n", name);
 
@@ -4128,7 +4159,7 @@ static struct dentry *trace_options_init_dentry(void)
 	if (!d_tracer)
 		return NULL;
 
-	t_options = debugfs_create_dir("options", d_tracer);
+	t_options = tracefs_create_dir("options", d_tracer);
 	if (!t_options) {
 		pr_warning("Could not create debugfs directory 'options'\n");
 		return NULL;
@@ -4198,7 +4229,7 @@ destroy_trace_option_files(struct trace_option_dentry *topts)
 
 	for (cnt = 0; topts[cnt].opt; cnt++) {
 		if (topts[cnt].entry)
-			debugfs_remove(topts[cnt].entry);
+			tracefs_remove(topts[cnt].entry);
 	}
 
 	kfree(topts);

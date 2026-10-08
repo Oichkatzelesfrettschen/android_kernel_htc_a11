@@ -24,6 +24,7 @@
 #include <linux/slab.h>
 #include <linux/smp.h>
 #include <linux/debugfs.h>
+#include <linux/tracefs.h>
 #include <linux/types.h>
 #include <linux/string.h>
 #include <linux/ctype.h>
@@ -2017,7 +2018,7 @@ static __init int init_kprobe_trace(void)
 	if (!d_tracer)
 		return 0;
 
-	entry = debugfs_create_file("kprobe_events", 0644, d_tracer,
+	entry = tracefs_create_file("kprobe_events", 0644, d_tracer,
 				    NULL, &kprobe_events_ops);
 
 	/* Event list interface */
@@ -2026,7 +2027,7 @@ static __init int init_kprobe_trace(void)
 			   "'kprobe_events' entry\n");
 
 	/* Profile interface */
-	entry = debugfs_create_file("kprobe_profile", 0444, d_tracer,
+	entry = tracefs_create_file("kprobe_profile", 0444, d_tracer,
 				    NULL, &kprobe_profile_ops);
 
 	if (!entry)
