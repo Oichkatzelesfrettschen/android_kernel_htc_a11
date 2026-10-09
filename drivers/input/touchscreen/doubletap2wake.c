@@ -29,6 +29,7 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/input.h>
+#include <linux/input/mt.h>
 #include <linux/input/wake_pwrkey.h>
 #include <linux/fb.h>
 #include <linux/notifier.h>
@@ -55,17 +56,32 @@ MODULE_LICENSE("GPL v2");
 #define DT2W_FEATHER		200
 #define DT2W_TIME		700
 
+/*
+ * Slot bound for the per-slot coordinate cache. The Himax report carries the
+ * contact count in a 4-bit field, so slot numbers stay below 16.
+ */
+#define DT2W_MAX_SLOTS		16
+
 /* Resources */
 int dt2w_switch = DT2W_DEFAULT;
 bool dt2w_scr_suspended = false;
-static cputime64_t tap_time_pre = 0;
-static int touch_x = 0, touch_y = 0, touch_nr = 0, x_pre = 0, y_pre = 0;
-static bool touch_x_called = false, touch_y_called = false, touch_cnt = true;
-static bool exec_count = true;
-//static struct notifier_block dt2w_lcd_notif;
-static struct workqueue_struct *dt2w_input_wq;
-static struct work_struct dt2w_input_work;
+static s64 tap_time_pre = 0;
+static int touch_nr = 0, x_pre = 0, y_pre = 0;
 static struct wake_lock dt2w_wake_lock;
+
+/*
+ * Input core view of the touch device. input_handle_abs_event() drops an
+ * ABS_MT value equal to the one already stored for its slot and passes
+ * ABS_MT_SLOT only when a surviving MT value belongs to another slot than
+ * the last one passed. The cache therefore mirrors the core's per-slot
+ * values: a coordinate absent from a frame equals the cached one.
+ */
+static int dt2w_slot;
+static int dt2w_x[DT2W_MAX_SLOTS], dt2w_y[DT2W_MAX_SLOTS];
+/* Slot whose ABS_MT_TRACKING_ID went from -1 to a new id in this frame. */
+static int dt2w_down_slot = -1;
+/* BTN_TOUCH went from 0 to 1 in this frame: the first contact landed. */
+static bool dt2w_touch_began;
 
 /* Read cmdline for dt2w */
 static int __init read_dt2w_cmdline(char *dt2w)
@@ -83,9 +99,7 @@ static int __init read_dt2w_cmdline(char *dt2w)
 }
 __setup("dt2w=", read_dt2w_cmdline);
 
-/* reset on finger release */
 static void doubletap2wake_reset(void) {
-	exec_count = true;
 	touch_nr = 0;
 	tap_time_pre = 0;
 	x_pre = 0;
@@ -114,97 +128,115 @@ static unsigned int calc_feather(int coord, int prev_coord) {
 }
 
 /* init a new touch */
-static void new_touch(int x, int y) {
-	tap_time_pre = ktime_to_ms(ktime_get());
+static void new_touch(int x, int y, s64 now) {
+	tap_time_pre = now;
 	x_pre = x;
 	y_pre = y;
 	touch_nr++;
 }
 
-/* Doubletap2wake main function */
-static void detect_doubletap2wake(int x, int y, bool st)
+/*
+ * One call per tap: the frame in which the first contact lands. A second
+ * tap within DT2W_TIME of the first and within DT2W_FEATHER of its position
+ * presses the power key; any other tap starts a new pair.
+ */
+static void detect_doubletap2wake(int x, int y)
 {
-        bool single_touch = st;
+	s64 now = ktime_to_ms(ktime_get());
+
 #if DT2W_DEBUG
-        pr_info(LOGTAG"x,y(%4d,%4d) single:%s\n",
-                x, y, (single_touch) ? "true" : "false");
+        pr_info(LOGTAG"tap x,y(%4d,%4d)\n", x, y);
 #endif
-	if ((single_touch) && (dt2w_switch > 0) && (exec_count) && (touch_cnt)) {
-		touch_cnt = false;
-		if (touch_nr == 0) {
-			new_touch(x, y);
-		} else if (touch_nr == 1) {
-			if ((calc_feather(x, x_pre) < DT2W_FEATHER) &&
-			    (calc_feather(y, y_pre) < DT2W_FEATHER) &&
-			    ((ktime_to_ms(ktime_get())-tap_time_pre) < DT2W_TIME))
-				touch_nr++;
-			else {
-				doubletap2wake_reset();
-				new_touch(x, y);
-			}
-		} else {
-			doubletap2wake_reset();
-			new_touch(x, y);
-		}
-		if ((touch_nr > 1)) {
-			pr_info(LOGTAG"ON\n");
-			exec_count = false;
-			doubletap2wake_pwrtrigger();
-			doubletap2wake_reset();
-		}
-	}
-}
-
-static void dt2w_input_callback(struct work_struct *unused) {
-
-	detect_doubletap2wake(touch_x, touch_y, true);
-
-	return;
-}
-
-static void dt2w_input_event(struct input_handle *handle, unsigned int type,
-				unsigned int code, int value) {
-#if DT2W_DEBUG
-	pr_info("doubletap2wake: code: %s|%u, val: %i\n",
-		((code==ABS_MT_POSITION_X) ? "X" :
-		(code==ABS_MT_POSITION_Y) ? "Y" :
-		(code==ABS_MT_TRACKING_ID) ? "ID" :
-		"undef"), code, value);
-#endif
-	if (dt2w_switch <= 0 || !dt2w_scr_suspended)
-		return;
-
-	if (code == ABS_MT_SLOT) {
+	if (touch_nr == 1 &&
+	    calc_feather(x, x_pre) < DT2W_FEATHER &&
+	    calc_feather(y, y_pre) < DT2W_FEATHER &&
+	    now - tap_time_pre < DT2W_TIME) {
+		pr_info(LOGTAG"ON\n");
+		doubletap2wake_pwrtrigger();
 		doubletap2wake_reset();
 		return;
 	}
 
-	if (code == ABS_MT_TRACKING_ID && value == -1) {
-		touch_cnt = true;
+	doubletap2wake_reset();
+	new_touch(x, y, now);
+}
+
+/*
+ * The Himax HM852xD protocol B report emits, per contact, ABS_MT_SLOT, the
+ * touch size and pressure, ABS_MT_POSITION_X/Y and then ABS_MT_TRACKING_ID
+ * through input_mt_report_slot_state(); BTN_TOUCH and SYN_REPORT close the
+ * frame. A lift emits ABS_MT_TRACKING_ID -1 for each released slot and
+ * BTN_TOUCH 0 once every contact is up. BTN_TOUCH reaches handlers only when
+ * it changes, so its 0 to 1 edge marks the start of a tap. The handler runs
+ * under the device event_lock and serializes with every other event of the
+ * frame; the tap is evaluated at SYN_REPORT with the coordinates of the slot
+ * whose tracking id began in that frame.
+ */
+static void dt2w_input_event(struct input_handle *handle, unsigned int type,
+				unsigned int code, int value) {
+	int slot;
+
+#if DT2W_DEBUG
+	pr_info("doubletap2wake: type: %u code: %u, val: %i\n",
+		type, code, value);
+#endif
+	switch (type) {
+	case EV_ABS:
+		switch (code) {
+		case ABS_MT_SLOT:
+			dt2w_slot = value;
+			break;
+		case ABS_MT_POSITION_X:
+			if (dt2w_slot >= 0 && dt2w_slot < DT2W_MAX_SLOTS)
+				dt2w_x[dt2w_slot] = value;
+			break;
+		case ABS_MT_POSITION_Y:
+			if (dt2w_slot >= 0 && dt2w_slot < DT2W_MAX_SLOTS)
+				dt2w_y[dt2w_slot] = value;
+			break;
+		case ABS_MT_TRACKING_ID:
+			if (value >= 0 && dt2w_down_slot < 0)
+				dt2w_down_slot = dt2w_slot;
+			break;
+		}
+		return;
+	case EV_KEY:
+		if (code == BTN_TOUCH && value)
+			dt2w_touch_began = true;
+		return;
+	case EV_SYN:
+		if (code != SYN_REPORT)
+			return;
+		break;
+	default:
 		return;
 	}
 
-	if (code == ABS_MT_POSITION_X) {
-		touch_x = value;
-		touch_x_called = true;
-	}
-
-	if (code == ABS_MT_POSITION_Y) {
-		touch_y = value;
-		touch_y_called = true;
-	}
-
-	if (touch_x_called || touch_y_called) {
-		touch_x_called = false;
-		touch_y_called = false;
+	slot = dt2w_down_slot >= 0 ? dt2w_down_slot : dt2w_slot;
+	if (dt2w_touch_began && dt2w_switch > 0 && dt2w_scr_suspended &&
+	    slot >= 0 && slot < DT2W_MAX_SLOTS) {
 		wake_lock_timeout(&dt2w_wake_lock, HZ);
-		queue_work_on(0, dt2w_input_wq, &dt2w_input_work);
+		detect_doubletap2wake(dt2w_x[slot], dt2w_y[slot]);
 	}
+	dt2w_touch_began = false;
+	dt2w_down_slot = -1;
 }
 
 /* The Himax HM852xD driver registers its touch input device under this name. */
 static int input_dev_filter(struct input_dev *dev) {
 	return strcmp(dev->name, "himax-touchscreen") ? 1 : 0;
+}
+
+/* Seeds the slot cache from the values the input core already holds. */
+static void dt2w_sync_slots(struct input_dev *dev)
+{
+	int i;
+
+	dt2w_slot = input_abs_get_val(dev, ABS_MT_SLOT);
+	for (i = 0; dev->mt && i < dev->mtsize && i < DT2W_MAX_SLOTS; i++) {
+		dt2w_x[i] = input_mt_get_value(&dev->mt[i], ABS_MT_POSITION_X);
+		dt2w_y[i] = input_mt_get_value(&dev->mt[i], ABS_MT_POSITION_Y);
+	}
 }
 
 static int dt2w_input_connect(struct input_handler *handler,
@@ -222,6 +254,8 @@ static int dt2w_input_connect(struct input_handler *handler,
 	handle->dev = dev;
 	handle->handler = handler;
 	handle->name = "dt2w";
+
+	dt2w_sync_slots(dev);
 
 	error = input_register_handle(handle);
 	if (error)
@@ -376,13 +410,6 @@ static int __init doubletap2wake_init(void)
 {
 	int rc;
 
-	dt2w_input_wq = create_workqueue("dt2wiwq");
-	if (!dt2w_input_wq) {
-		pr_err("%s: Failed to create dt2wiwq workqueue\n", __func__);
-		rc = -ENOMEM;
-		goto err_wq;
-	}
-	INIT_WORK(&dt2w_input_work, dt2w_input_callback);
 	wake_lock_init(&dt2w_wake_lock, WAKE_LOCK_SUSPEND, "doubletap2wake");
 
 	rc = input_register_handler(&dt2w_input_handler);
@@ -410,8 +437,6 @@ err_fb:
 	input_unregister_handler(&dt2w_input_handler);
 err_handler:
 	wake_lock_destroy(&dt2w_wake_lock);
-	destroy_workqueue(dt2w_input_wq);
-err_wq:
 	return rc;
 }
 
