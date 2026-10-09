@@ -2672,7 +2672,7 @@ static int __init exfat_init_inodecache(void)
 	return 0;
 }
 
-static void __exit exfat_destroy_inodecache(void)
+static void exfat_destroy_inodecache(void)
 {
 	kmem_cache_destroy(exfat_inode_cachep);
 }
@@ -2723,13 +2723,17 @@ static int __init init_exfat_fs(void)
 	err = exfat_init_inodecache();
 	if (err) return err;
 
-	return register_filesystem(&exfat_fs_type);
+	err = register_filesystem(&exfat_fs_type);
+	if (err)
+		exfat_destroy_inodecache();
+
+	return err;
 }
 
 static void __exit exit_exfat_fs(void)
 {
-	exfat_destroy_inodecache();
 	unregister_filesystem(&exfat_fs_type);
+	exfat_destroy_inodecache();
 }
 
 module_init(init_exfat_fs);
