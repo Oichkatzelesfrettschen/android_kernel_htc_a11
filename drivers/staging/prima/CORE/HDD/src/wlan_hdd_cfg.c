@@ -3322,7 +3322,9 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
 #endif
 
    hdd_config_t *pConfig = pHddCtx->cfg_ini;
-   tSirMacHTCapabilityInfo htCapInfo;
+   tSirMacHTCapabilityInfo *htCapInfo;
+   tANI_U32 htCapWord = 0;
+   tANI_U16 htCapBits;
 
 
    if (ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_SHORT_GI_20MHZ,
@@ -3798,11 +3800,16 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
          hddLog(LOGE, "Could not pass on WNI_CFG_HT_RX_STBC to CCM\n");
      }
 
-     ccmCfgGetInt(pHddCtx->hHal, WNI_CFG_HT_CAP_INFO, (tANI_U32 *)&htCapInfo);
-     htCapInfo.rxSTBC = pConfig->enableRxSTBC;
+     /* WNI_CFG_HT_CAP_INFO is a 32-bit CFG word; tSirMacHTCapabilityInfo is the
+      * 16-bit bitfield in its low half, so it is edited through a u16. */
+     ccmCfgGetInt(pHddCtx->hHal, WNI_CFG_HT_CAP_INFO, &htCapWord);
+     htCapBits = htCapWord & 0xffff;
+     htCapInfo = (tSirMacHTCapabilityInfo *)&htCapBits;
+     htCapInfo->rxSTBC = pConfig->enableRxSTBC;
+     htCapWord = htCapBits;
 
      if(ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_HT_CAP_INFO,
-                     *(tANI_U32 *)&htCapInfo, NULL, eANI_BOOLEAN_FALSE)
+                     htCapWord, NULL, eANI_BOOLEAN_FALSE)
          ==eHAL_STATUS_FAILURE)
      {
          fStatus = FALSE;
