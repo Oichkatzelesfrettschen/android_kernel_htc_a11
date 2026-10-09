@@ -838,6 +838,12 @@ static void *row_init_queue(struct request_queue *q)
 	 */
 	rdata->rd_idle_data.idle_time_ms = ROW_IDLE_TIME_MSEC;
 	rdata->rd_idle_data.freq_ms = ROW_READ_FREQ_MSEC;
+	if (IS_ENABLED(CONFIG_IOSCHED_ROW_TWEAK_DEFAULT)) {
+		for (i = 0; i < ROWQ_MAX_PRIO; i++)
+			rdata->row_queues[i].disp_quantum = row_tweak_quantum[i];
+		rdata->rd_idle_data.freq_ms = ROW_TWEAK_READ_FREQ_MSEC;
+		rdata->tweak_profile = 1;
+	}
 	hrtimer_init(&rdata->rd_idle_data.hr_timer,
 		CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	rdata->rd_idle_data.hr_timer.function = &row_idle_hrtimer_fn;
