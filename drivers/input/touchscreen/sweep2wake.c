@@ -32,6 +32,7 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/input.h>
+#include <linux/input/mt.h>
 #include <linux/input/wake_pwrkey.h>
 #include <linux/fb.h>
 #include <linux/notifier.h>
@@ -62,17 +63,32 @@ MODULE_LICENSE("GPL v2");
 #define DEFAULT_S2W_X_B2                360
 #define DEFAULT_S2W_X_FINAL             160
 
+/*
+ * Slot bound for the per-slot coordinate cache. The Himax report carries the
+ * contact count in a 4-bit field, so slot numbers stay below 16.
+ */
+#define S2W_MAX_SLOTS		16
+
 /* Resources */
 int s2w_switch = S2W_DEFAULT, s2w_s2sonly = S2W_S2SONLY_DEFAULT;
 bool s2w_scr_suspended = false;
-static int touch_x = 0, touch_y = 0;
-static bool touch_x_called = false, touch_y_called = false;
 static bool exec_count = true;
 static bool scr_on_touch = false, barrier[2] = {false, false};
-//static struct notifier_block s2w_lcd_notif;
-static struct workqueue_struct *s2w_input_wq;
-static struct work_struct s2w_input_work;
 static struct wake_lock s2w_wake_lock;
+
+/*
+ * Input core view of the touch device. input_handle_abs_event() drops an
+ * ABS_MT value equal to the one already stored for its slot and passes
+ * ABS_MT_SLOT only when a surviving MT value belongs to another slot than
+ * the last one passed. The cache therefore mirrors the core's per-slot
+ * values: a coordinate absent from a frame equals the cached one.
+ */
+static int s2w_slot;
+static int s2w_x[S2W_MAX_SLOTS], s2w_y[S2W_MAX_SLOTS];
+/* Slot of the contact that started the sweep, or -1 with no contact. */
+static int s2w_sweep_slot = -1;
+/* BTN_TOUCH state: at least one contact is on the panel. */
+static bool s2w_touching;
 
 static int s2w_start_posn = DEFAULT_S2W_X_B1;
 static int s2w_mid_posn = DEFAULT_S2W_X_B2;
@@ -110,7 +126,7 @@ static void sweep2wake_pwrtrigger(void) {
         return;
 }
 
-/* reset on finger release */
+/* Rearms the barriers when the sweeping contact leaves the panel. */
 static void sweep2wake_reset(void) {
 	exec_count = true;
 	barrier[0] = false;
@@ -340,51 +356,91 @@ static struct kobject *s2w_parameters_kobj;
 /****************** SYSFS INTERFACE (END) ********************/
 
 
-static void s2w_input_callback(struct work_struct *unused) {
-
-	detect_sweep2wake(touch_x, touch_y, true);
-
-	return;
-}
-
+/*
+ * The Himax HM852xD protocol B report emits, per contact, ABS_MT_SLOT, the
+ * touch size and pressure, ABS_MT_POSITION_X/Y and then ABS_MT_TRACKING_ID
+ * through input_mt_report_slot_state(); BTN_TOUCH and SYN_REPORT close the
+ * frame. A lift emits ABS_MT_TRACKING_ID -1 for each released slot and
+ * BTN_TOUCH 0 once every contact is up. The sweep follows the contact whose
+ * tracking id began first and ends when that slot's tracking id returns to
+ * -1 or BTN_TOUCH drops to 0. The handler runs under the device event_lock,
+ * so the release and the coordinates reach detect_sweep2wake() in event
+ * order, once per SYN_REPORT.
+ */
 static void s2w_input_event(struct input_handle *handle, unsigned int type,
 				unsigned int code, int value) {
+	int slot;
+
 #if S2W_DEBUG
-	pr_info("sweep2wake: code: %s|%u, val: %i\n",
-		((code==ABS_MT_POSITION_X) ? "X" :
-		(code==ABS_MT_POSITION_Y) ? "Y" :
-		(code==ABS_MT_TRACKING_ID) ? "ID" :
-		"undef"), code, value);
+	pr_info("sweep2wake: type: %u code: %u, val: %i\n",
+		type, code, value);
 #endif
-	if (s2w_switch <= 0)
+	switch (type) {
+	case EV_ABS:
+		switch (code) {
+		case ABS_MT_SLOT:
+			s2w_slot = value;
+			break;
+		case ABS_MT_POSITION_X:
+			if (s2w_slot >= 0 && s2w_slot < S2W_MAX_SLOTS)
+				s2w_x[s2w_slot] = value;
+			break;
+		case ABS_MT_POSITION_Y:
+			if (s2w_slot >= 0 && s2w_slot < S2W_MAX_SLOTS)
+				s2w_y[s2w_slot] = value;
+			break;
+		case ABS_MT_TRACKING_ID:
+			if (value >= 0) {
+				if (s2w_sweep_slot < 0)
+					s2w_sweep_slot = s2w_slot;
+			} else if (s2w_slot == s2w_sweep_slot) {
+				s2w_sweep_slot = -1;
+				sweep2wake_reset();
+			}
+			break;
+		}
+		return;
+	case EV_KEY:
+		if (code != BTN_TOUCH)
+			return;
+		s2w_touching = value;
+		if (!value) {
+			s2w_sweep_slot = -1;
+			sweep2wake_reset();
+		}
+		return;
+	case EV_SYN:
+		if (code != SYN_REPORT)
+			return;
+		break;
+	default:
+		return;
+	}
+
+	if (!s2w_touching || s2w_switch <= 0)
 		return;
 
-	if (code == ABS_MT_SLOT) {
-		sweep2wake_reset();
+	/* A slot whose tracking id never returned to -1 reports no new id. */
+	if (s2w_sweep_slot < 0)
+		s2w_sweep_slot = s2w_slot;
+	slot = s2w_sweep_slot;
+	if (slot < 0 || slot >= S2W_MAX_SLOTS)
 		return;
-	}
 
-	if (code == ABS_MT_TRACKING_ID && value == -1) {
-		sweep2wake_reset();
-		return;
-	}
+	if (s2w_scr_suspended)
+		wake_lock_timeout(&s2w_wake_lock, HZ);
+	detect_sweep2wake(s2w_x[slot], s2w_y[slot], true);
+}
 
-	if (code == ABS_MT_POSITION_X) {
-		touch_x = value;
-		touch_x_called = true;
-	}
+/* Seeds the slot cache from the values the input core already holds. */
+static void s2w_sync_slots(struct input_dev *dev)
+{
+	int i;
 
-	if (code == ABS_MT_POSITION_Y) {
-		touch_y = value;
-		touch_y_called = true;
-	}
-
-	if (touch_x_called && touch_y_called) {
-		touch_x_called = false;
-		touch_y_called = false;
-		if (s2w_scr_suspended)
-			wake_lock_timeout(&s2w_wake_lock, HZ);
-		queue_work_on(0, s2w_input_wq, &s2w_input_work);
+	s2w_slot = input_abs_get_val(dev, ABS_MT_SLOT);
+	for (i = 0; dev->mt && i < dev->mtsize && i < S2W_MAX_SLOTS; i++) {
+		s2w_x[i] = input_mt_get_value(&dev->mt[i], ABS_MT_POSITION_X);
+		s2w_y[i] = input_mt_get_value(&dev->mt[i], ABS_MT_POSITION_Y);
 	}
 }
 
@@ -408,6 +464,8 @@ static int s2w_input_connect(struct input_handler *handler,
 	handle->dev = dev;
 	handle->handler = handler;
 	handle->name = "s2w";
+
+	s2w_sync_slots(dev);
 
 	error = input_register_handle(handle);
 	if (error)
@@ -602,13 +660,6 @@ static int __init sweep2wake_init(void)
 		goto err_group;
 	}
 
-	s2w_input_wq = create_workqueue("s2wiwq");
-	if (!s2w_input_wq) {
-		pr_err("%s: Failed to create s2wiwq workqueue\n", __func__);
-		rc = -ENOMEM;
-		goto err_wq;
-	}
-	INIT_WORK(&s2w_input_work, s2w_input_callback);
 	wake_lock_init(&s2w_wake_lock, WAKE_LOCK_SUSPEND, "sweep2wake");
 
 	rc = input_register_handler(&s2w_input_handler);
@@ -636,8 +687,6 @@ err_fb:
 	input_unregister_handler(&s2w_input_handler);
 err_handler:
 	wake_lock_destroy(&s2w_wake_lock);
-	destroy_workqueue(s2w_input_wq);
-err_wq:
 	sysfs_remove_group(s2w_parameters_kobj, &s2w_parameters_attr_group);
 err_group:
 	kobject_put(s2w_parameters_kobj);
