@@ -1878,7 +1878,7 @@ static int iw_get_encode(struct net_device *dev,
 
     for(i=0; i < MAX_WEP_KEYS; i++)
     {
-        if(pRoamProfile->Keys.KeyMaterial[i] == NULL)
+        if(pRoamProfile->Keys.KeyLength[i] == 0)
         {
             continue;
         }
@@ -3280,7 +3280,7 @@ static int iw_get_encodeext(struct net_device *dev,
 
     for(i=0; i < MAX_WEP_KEYS; i++)
     {
-        if(pRoamProfile->Keys.KeyMaterial[i] == NULL)
+        if(pRoamProfile->Keys.KeyLength[i] == 0)
         {
             continue;
         }
