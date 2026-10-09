@@ -18,6 +18,10 @@
 #ifndef _LINUX_WAKEUP_REASON_H
 #define _LINUX_WAKEUP_REASON_H
 
+#ifdef CONFIG_SUSPEND
 void log_wakeup_reason(int irq);
+#else
+static inline void log_wakeup_reason(int irq) {}
+#endif
 
 #endif /* _LINUX_WAKEUP_REASON_H */
