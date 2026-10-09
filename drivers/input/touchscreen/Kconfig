@@ -1057,6 +1057,31 @@ config TOUCHSCREEN_GT9XX
 
           If unsure, say N.
 
+config TOUCHSCREEN_WAKE_PWRKEY
+	bool
+
+config TOUCHSCREEN_SWEEP2WAKE
+	bool "Sweep2Wake for the Himax touchscreen"
+	depends on TOUCHSCREEN_ONE_LAYER_HIMAX && FB
+	select TOUCHSCREEN_WAKE_PWRKEY
+	default n
+	help
+	  Turns the screen on or off with a horizontal sweep. The
+	  feature is off until /sys/android_touch/sweep2wake is set to 1.
+	  While it is on, the touch controller stays in active scan mode
+	  with its interrupt armed as a wake source when the screen is off.
+
+config TOUCHSCREEN_DOUBLETAP2WAKE
+	bool "DoubleTap2Wake for the Himax touchscreen"
+	depends on TOUCHSCREEN_ONE_LAYER_HIMAX && FB
+	select TOUCHSCREEN_WAKE_PWRKEY
+	default n
+	help
+	  Turns the screen on with two taps. The feature is off until
+	  /sys/android_touch/doubletap2wake is set to 1. While it is on, the
+	  touch controller stays in active scan mode with its interrupt
+	  armed as a wake source when the screen is off.
+
 source "drivers/input/touchscreen/gt9xx/Kconfig"
 
 endif

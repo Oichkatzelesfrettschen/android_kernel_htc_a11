@@ -476,17 +476,18 @@ static void populate_codec_list(struct msm_compr_audio *prtd)
 	prtd->compr_cap.max_fragments =
 			COMPR_PLAYBACK_MAX_NUM_FRAGMENTS;
 #ifdef CONFIG_HD_AUDIO
-	prtd->compr_cap.num_codecs = 5;
+	prtd->compr_cap.num_codecs = 6;
 #else
-	prtd->compr_cap.num_codecs = 4;
+	prtd->compr_cap.num_codecs = 5;
 #endif
 	prtd->compr_cap.codecs[0] = SND_AUDIOCODEC_MP3;
 	prtd->compr_cap.codecs[1] = SND_AUDIOCODEC_AAC;
 	prtd->compr_cap.codecs[2] = SND_AUDIOCODEC_AC3;
 	prtd->compr_cap.codecs[3] = SND_AUDIOCODEC_EAC3;
+	prtd->compr_cap.codecs[4] = SND_AUDIOCODEC_MP2;
 #ifdef CONFIG_HD_AUDIO
 	
-	prtd->compr_cap.codecs[4] = SND_AUDIOCODEC_PCM;
+	prtd->compr_cap.codecs[5] = SND_AUDIOCODEC_PCM;
 #endif
 }
 
@@ -501,6 +502,10 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 	switch (prtd->codec) {
 	case FORMAT_MP3:
 		
+		break;
+	case FORMAT_MP2:
+		/* The Layer II decoder reads its configuration from each frame
+		 * header, so the stream takes no media format block. */
 		break;
 	case FORMAT_MPEG4_AAC:
 		memset(&aac_cfg, 0x0, sizeof(struct asm_aac_cfg));
@@ -899,6 +904,14 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 		pr_debug("SND_AUDIOCODEC_AAC\n");
 		prtd->codec = FORMAT_MPEG4_AAC;
 		frame_sz = AAC_OUTPUT_FRAME_SZ;
+		break;
+	}
+
+	case SND_AUDIOCODEC_MP2: {
+		pr_debug("SND_AUDIOCODEC_MP2\n");
+		prtd->codec = FORMAT_MP2;
+		/* A Layer II frame carries 1152 samples, as a Layer III frame does. */
+		frame_sz = MP3_OUTPUT_FRAME_SZ;
 		break;
 	}
 
@@ -1590,6 +1603,8 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 	case SND_AUDIOCODEC_AC3:
 		break;
 	case SND_AUDIOCODEC_EAC3:
+		break;
+	case SND_AUDIOCODEC_MP2:
 		break;
 #ifdef CONFIG_HD_AUDIO
 	case SND_AUDIOCODEC_PCM:

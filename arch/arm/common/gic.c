@@ -39,6 +39,7 @@
 #include <linux/percpu.h>
 #include <linux/slab.h>
 #include <linux/syscore_ops.h>
+#include <linux/wakeup_reason.h>
 
 #include <asm/irq.h>
 #include <asm/exception.h>
@@ -249,9 +250,6 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 	unsigned long pending[32];
 	void __iomem *base = gic_data_dist_base(gic);
 
-	if (!msm_show_resume_irq_mask)
-		return;
-
 	raw_spin_lock(&irq_controller_lock);
 	for (i = 0; i * 32 < gic->max_irq; i++) {
 		enabled = readl_relaxed(base + GIC_DIST_ENABLE_CLEAR + i * 4);
@@ -263,6 +261,9 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 	for (i = find_first_bit(pending, gic->max_irq);
 	     i < gic->max_irq;
 	     i = find_next_bit(pending, gic->max_irq, i+1)) {
+		log_wakeup_reason(i + gic->irq_offset);
+		if (!msm_show_resume_irq_mask)
+			continue;
 		pr_warning("%s: %d triggered", __func__,
 					i + gic->irq_offset);
 #ifdef CONFIG_HTC_POWER_DEBUG

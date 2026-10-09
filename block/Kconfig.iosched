@@ -43,6 +43,15 @@ config IOSCHED_ROW
 	  according to queue priority.
 	  Most suitable for mobile devices.
 
+config IOSCHED_ROW_TWEAK_DEFAULT
+	bool "Start ROW with the tuned dispatch profile"
+	depends on IOSCHED_ROW
+	default n
+	---help---
+	  Start each ROW queue with tweak_profile 1: the tuned dispatch
+	  quantums and a 25 ms read idling frequency. Writing 0 to
+	  queue/iosched/tweak_profile restores the stock values at runtime.
+
 config IOSCHED_CFQ
 	tristate "CFQ I/O scheduler"
 	# If BLK_CGROUP is a module, CFQ has to be built as module.

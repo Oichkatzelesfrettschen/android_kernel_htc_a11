@@ -1863,6 +1863,9 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 	case FORMAT_MP3:
 		open.dec_fmt_id = ASM_MEDIA_FMT_MP3;
 		break;
+	case FORMAT_MP2:
+		open.dec_fmt_id = ASM_MEDIA_FMT_MP2;
+		break;
 	case FORMAT_AC3:
 		open.dec_fmt_id = ASM_MEDIA_FMT_EAC3_DEC;
 		break;

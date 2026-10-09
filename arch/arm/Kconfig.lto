@@ -2,6 +2,7 @@ config LTO_CLANG_THIN
 	bool "Clang ThinLTO for vmlinux"
 	depends on ARCH_MSM8226 && !FUNCTION_TRACER
 	default n
+	select LTO
 	help
 	  Compile the kernel to LLVM bitcode and link vmlinux through one
 	  relocatable ThinLTO link in ld.lld. That prelink rebuilds the
@@ -13,5 +14,29 @@ config LTO_CLANG_THIN
 	  The prelink covers vmlinux alone: the module build stops with an
 	  error when any module is selected, and the function tracer, whose
 	  mcount records need a native object per compile, stays disabled.
+
+	  If unsure, say N.
+
+config LTO_GCC
+	bool "GCC link time optimization for vmlinux"
+	depends on ARCH_MSM8226 && !FUNCTION_TRACER && !LTO_CLANG_THIN
+	default n
+	select LTO
+	help
+	  Compile the kernel C objects to GCC GIMPLE beside their native
+	  code (fat LTO objects) and link vmlinux through one relocatable
+	  LTO link that gcc runs through scripts/gcc-ld and the linker
+	  plugin. That prelink rebuilds the initcall sections in source link
+	  order and applies the genksyms export CRCs; modpost, kallsyms and
+	  the final vmlinux link read its native output. Kernel C compiles
+	  with -fno-pic. An object whose own -f, -m, -O, -g or -Wa, options
+	  differ from the kernel-wide set compiles natively, because GCC 4.9
+	  builds every LTO partition with the options of the link command.
+	  The build needs the GCC toolchain; Kbuild stops under LLVM=1.
+
+	  The prelink covers vmlinux alone: the module build stops with an
+	  error when any module is selected, and the function tracer, whose
+	  mcount records need a native object per compile, stays disabled.
+	  CONFIG_LTO_CLANG_THIN and this option exclude each other.
 
 	  If unsure, say N.

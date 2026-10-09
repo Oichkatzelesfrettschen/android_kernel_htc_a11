@@ -1436,7 +1436,8 @@ u64 snmp_fold_field64(void __percpu *mib[], int offt, size_t syncp_offset)
 EXPORT_SYMBOL_GPL(snmp_fold_field64);
 #endif
 
-int snmp_mib_init(void __percpu **ptr, size_t mibsize, size_t align)
+int snmp_mib_init(void __percpu *ptr[SNMP_ARRAY_SZ], size_t mibsize,
+		  size_t align)
 {
 	BUG_ON(ptr == NULL);
 	ptr[0] = __alloc_percpu(mibsize, align);
@@ -1454,7 +1455,7 @@ int snmp_mib_init(void __percpu **ptr, size_t mibsize, size_t align)
 }
 EXPORT_SYMBOL_GPL(snmp_mib_init);
 
-void snmp_mib_free(void __percpu **ptr)
+void snmp_mib_free(void __percpu *ptr[SNMP_ARRAY_SZ])
 {
 	int i;
 

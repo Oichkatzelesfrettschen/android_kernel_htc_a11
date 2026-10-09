@@ -1952,6 +1952,73 @@ exit:
 	goto out;
 }
 
+static struct file *do_tmpfile(int dfd, const char *pathname,
+		struct nameidata *nd, int flags,
+		const struct open_flags *op)
+{
+	static const struct qstr name = { .name = "/", .len = 1 };
+	struct dentry *dentry, *child;
+	struct inode *dir;
+	struct file *filp = NULL;
+	umode_t mode = op->mode;
+	int error = path_lookupat(dfd, pathname,
+				  flags | LOOKUP_DIRECTORY, nd);
+	if (unlikely(error))
+		return ERR_PTR(error);
+	error = mnt_want_write(nd->path.mnt);
+	if (unlikely(error))
+		goto out;
+	/* we want directory to be writable */
+	error = inode_permission2(nd->path.mnt, nd->inode,
+				  MAY_WRITE | MAY_EXEC);
+	if (error)
+		goto out2;
+	dentry = nd->path.dentry;
+	dir = dentry->d_inode;
+	if (!dir->i_op->tmpfile) {
+		error = -EOPNOTSUPP;
+		goto out2;
+	}
+	child = d_alloc(dentry, &name);
+	if (unlikely(!child)) {
+		error = -ENOMEM;
+		goto out2;
+	}
+	nd->flags &= ~LOOKUP_DIRECTORY;
+	nd->flags |= op->intent;
+	dput(nd->path.dentry);
+	nd->path.dentry = child;
+	if (!IS_POSIXACL(dir))
+		mode &= ~current_umask();
+	error = dir->i_op->tmpfile(dir, nd->path.dentry, mode);
+	if (error)
+		goto out2;
+	audit_inode(pathname, nd->path.dentry);
+	/* Don't check for other permissions, the inode was just created */
+	error = may_open(&nd->path, MAY_OPEN, op->open_flag);
+	if (error)
+		goto out2;
+	/*
+	 * nameidata_to_filp() opens the intent file on nd->path through
+	 * __dentry_open(), which applies the O_DIRECT check and releases the
+	 * file itself on failure.
+	 */
+	filp = nameidata_to_filp(nd);
+	if (IS_ERR(filp)) {
+		error = PTR_ERR(filp);
+	} else if (!(op->open_flag & O_EXCL)) {
+		struct inode *inode = filp->f_path.dentry->d_inode;
+		spin_lock(&inode->i_lock);
+		inode->i_state |= I_LINKABLE;
+		spin_unlock(&inode->i_lock);
+	}
+out2:
+	mnt_drop_write(nd->path.mnt);
+out:
+	path_put(&nd->path);
+	return error ? ERR_PTR(error) : filp;
+}
+
 static struct file *path_openat(int dfd, const char *pathname,
 		struct nameidata *nd, const struct open_flags *op, int flags)
 {
@@ -1968,6 +2035,16 @@ static struct file *path_openat(int dfd, const char *pathname,
 	nd->intent.open.file = filp;
 	nd->intent.open.flags = open_to_namei_flags(op->open_flag);
 	nd->intent.open.create_mode = op->mode;
+
+	/*
+	 * path_lookupat() inside do_tmpfile() releases nd->root and its own
+	 * base file, so this path skips that cleanup and keeps only
+	 * release_open_intent().
+	 */
+	if (unlikely(op->open_flag & __O_TMPFILE)) {
+		filp = do_tmpfile(dfd, pathname, nd, flags, op);
+		goto out2;
+	}
 
 	error = path_init(dfd, pathname, flags | LOOKUP_PARENT, nd, &base);
 	if (unlikely(error))
@@ -2002,6 +2079,7 @@ out:
 		path_put(&nd->root);
 	if (base)
 		fput(base);
+out2:
 	release_open_intent(nd);
 	return filp;
 
@@ -2011,9 +2089,10 @@ out_filp:
 }
 
 struct file *do_filp_open(int dfd, const char *pathname,
-		const struct open_flags *op, int flags)
+		const struct open_flags *op)
 {
 	struct nameidata nd;
+	int flags = op->lookup_flags;
 	struct file *filp;
 
 	filp = path_openat(dfd, pathname, &nd, op, flags | LOOKUP_RCU);
@@ -2025,15 +2104,14 @@ struct file *do_filp_open(int dfd, const char *pathname,
 }
 
 struct file *do_file_open_root(struct dentry *dentry, struct vfsmount *mnt,
-		const char *name, const struct open_flags *op, int flags)
+		const char *name, const struct open_flags *op)
 {
 	struct nameidata nd;
 	struct file *file;
+	int flags = op->lookup_flags | LOOKUP_ROOT;
 
 	nd.root.mnt = mnt;
 	nd.root.dentry = dentry;
-
-	flags |= LOOKUP_ROOT;
 
 	if (dentry->d_inode->i_op->follow_link && op->intent & LOOKUP_OPEN)
 		return ERR_PTR(-ELOOP);
@@ -2582,12 +2660,18 @@ int vfs_link2(struct vfsmount *mnt, struct dentry *old_dentry, struct inode *dir
 
 	mutex_lock(&inode->i_mutex);
 	
-	if (inode->i_nlink == 0)
+	if (inode->i_nlink == 0 && !(inode->i_state & I_LINKABLE))
 		error =  -ENOENT;
 	else if (max_links && inode->i_nlink >= max_links)
 		error = -EMLINK;
 	else
 		error = dir->i_op->link(old_dentry, dir, new_dentry);
+
+	if (!error && (inode->i_state & I_LINKABLE)) {
+		spin_lock(&inode->i_lock);
+		inode->i_state &= ~I_LINKABLE;
+		spin_unlock(&inode->i_lock);
+	}
 	mutex_unlock(&inode->i_mutex);
 	if (!error)
 		fsnotify_link(dir, inode, new_dentry);

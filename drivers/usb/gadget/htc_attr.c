@@ -40,6 +40,7 @@ enum {
 	USB_FUNCTION_PROJECTOR2,
 	USB_FUNCTION_AUDIO_SOURCE, 
 	USB_FUNCTION_PTP, 
+	USB_FUNCTION_HID,
 	USB_FUNCTION_AUTOBOT = 30,
 	USB_FUNCTION_RNDIS_IPT = 31,
 };
@@ -121,6 +122,10 @@ static struct usb_string_node usb_string_array[] = {
 	{
 		.usb_function_flag = 1 << USB_FUNCTION_PTP,
 		.name = "ptp",
+	},
+	{
+		.usb_function_flag = 1 << USB_FUNCTION_HID,
+		.name = "hid",
 	},
 
 };
@@ -521,6 +526,10 @@ int android_switch_function(unsigned func)
 			if (android_usb_function_holder_list_add_tail(f, &conf->enabled_functions, dev))
 				pr_err("android_switch_function: Cannot add %s\n", f->name);
 
+		} else if ((func & (1 << USB_FUNCTION_HID)) && !strcmp(f->name, "hid")) {
+			if (android_usb_function_holder_list_add_tail(f, &conf->enabled_functions, dev))
+				pr_err("android_switch_function: Cannot add %s\n", f->name);
+
 		} else if ((func & (1 << USB_FUNCTION_ACCESSORY)) && !strcmp(f->name, "accessory")) {
 			if (android_usb_function_holder_list_add_tail(f, &conf->enabled_functions, dev))
 				pr_err("android_switch_function: Cannot add %s\n", f->name);
@@ -768,7 +777,7 @@ void init_mfg_serialno(void)
 	char *serialno = "000000000000";
 
 	use_mfg_serialno = (board_mfg_mode() == 1) ? 1 : 0;
-	strncpy(mfg_df_serialno, serialno, strlen(serialno));
+	strlcpy(mfg_df_serialno, serialno, sizeof(mfg_df_serialno));
 }
 static int usb_disable;
 static ssize_t show_usb_cable_connect(struct device *dev,
@@ -840,17 +849,20 @@ static ssize_t store_usb_serial_number(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct android_usb_platform_data *pdata = dev->platform_data;
-	char *serialno = "000000000000";
+	const char *serialno = "000000000000";
+	if (!count)
+		return -EINVAL;
 	manual_serialno_flag = 1;
 	if (buf[0] == '0' || buf[0] == '1') {
 		memset(mfg_df_serialno, 0x0, sizeof(mfg_df_serialno));
 		if (buf[0] == '0') {
-			strncpy(mfg_df_serialno, serialno, strlen(serialno));
+			strlcpy(mfg_df_serialno, serialno,
+				sizeof(mfg_df_serialno));
 			use_mfg_serialno = 1;
 			android_set_serialno(mfg_df_serialno);
 		} else if (pdata) {
-			strncpy(mfg_df_serialno, pdata->serial_number,
-					strlen(pdata->serial_number));
+			strlcpy(mfg_df_serialno, pdata->serial_number,
+				sizeof(mfg_df_serialno));
 			use_mfg_serialno = 0;
 			android_set_serialno(pdata->serial_number);
 		} else {
@@ -897,14 +909,10 @@ static ssize_t show_dummy_usb_serial_number(struct device *dev,
 static ssize_t store_dummy_usb_serial_number(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
-	int data_buff_size = (sizeof(mfg_df_serialno) > strlen(buf))?
-		strlen(buf):sizeof(mfg_df_serialno);
+	int data_buff_size = min_t(size_t, count, sizeof(mfg_df_serialno) - 1);
 	int loop_i;
 	manual_serialno_flag = 1;
 	
-	if (data_buff_size == 16)
-		data_buff_size--;
-
 	for (loop_i = 0; loop_i < data_buff_size; loop_i++)     {
 		if (buf[loop_i] >= 0x30 && buf[loop_i] <= 0x39) 
 			continue;
@@ -1252,4 +1260,3 @@ static void setup_vendor_info(struct android_dev *dev) {
 	android_enable(dev);
 	dev->enabled = true;
 }
-

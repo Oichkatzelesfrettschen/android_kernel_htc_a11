@@ -84,7 +84,11 @@
 #define O_PATH		010000000
 #endif
 
-/* Bionic's fortified open declarations require the UAPI flag definition. */
+/*
+ * __O_TMPFILE selects the unnamed-file open in path_openat(). O_TMPFILE
+ * carries O_DIRECTORY, so a kernel without that open path treats the
+ * request as a write open of a directory and fails it with EISDIR.
+ */
 #ifndef __O_TMPFILE
 #define __O_TMPFILE	020000000
 #endif

@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 # SPDX-License-Identifier: GPL-2.0
-# Check the native ARM object that the ThinLTO prelink writes as vmlinux.o
+# Check the native ARM object that the LTO prelink writes as vmlinux.o
 # before modpost, kallsyms and the final vmlinux link consume it.
 #
 # The object must be an ARM EABI5 little-endian relocatable ELF32. Every
@@ -14,10 +14,13 @@ use warnings;
 
 @ARGV == 2 or die "usage: $0 READELF VMLINUX_OBJECT\n";
 my ($readelf, $object) = @ARGV;
+# READELF may carry a launcher word such as ccache.
+my @readelf = split ' ', $readelf;
+@readelf or die "READELF names no program\n";
 
 sub readelf_output {
 	my (@arguments) = @_;
-	open my $pipe, '-|', $readelf, @arguments, $object
+	open my $pipe, '-|', @readelf, @arguments, $object
 		or die "cannot run $readelf: $!\n";
 	local $/;
 	my $output = <$pipe>;
@@ -108,17 +111,17 @@ for my $section (@sections) {
 		check_section($section, 'PROGBITS', 'A', 'W');
 	} elsif ($name =~ /^\.(?:bss|sbss)(?:\..+)?$/) {
 		check_section($section, 'NOBITS', 'WA', 'X');
-	} elsif ($name =~ /^\.(?:data|sdata|$lifetime\.data|data\.rel\.ro)(?:\..+)?$/ ||
-		 $name =~ /^\.(?:init\.setup|exitcall\.exit|arch\.info\.init|taglist\.init|exportcompat\.init)$/ ||
-		 $name =~ /^(?:__param|__modver|__tracepoints|__tracepoints_ptrs|_ftrace_events|__verbose|__trace_printk_fmt)$/ ||
-		 $name =~ /^$export_table$/ ||
-		 $name =~ /^$initcall_section$/) {
+	} elsif ($name =~ /^\.(?:data|sdata|$lifetime\.data|data\.rel\.ro)(?:\..+)?$/) {
 		check_section($section, 'PROGBITS', 'WA', 'X');
-		$initcall_count++ if $name =~ /^$initcall_section$/;
-	} elsif ($name =~ /^\.$lifetime\.rodata(?:\..+)?$/) {
-		# Lifetime rodata holds const pointer tables, which a compiler
-		# may emit writable; the final link places it by name.
+	} elsif ($name =~ /^\.(?:init\.setup|exitcall\.exit|arch\.info\.init|taglist\.init|exportcompat\.init)$/ ||
+		 $name =~ /^(?:__param|__modver|__tracepoints|__tracepoints_ptrs|_ftrace_events|__verbose|__trace_printk_fmt)$/ ||
+		 $name =~ /^$export_table$/ || $name =~ /^$initcall_section$/ ||
+		 $name =~ /^\.$lifetime\.rodata(?:\..+)?$/) {
+		# Kernel tables and lifetime rodata: a table of const records
+		# comes out writable from Clang and read-only from GCC, and the
+		# final link places each by name.
 		check_section($section, 'PROGBITS', 'A', 'X');
+		$initcall_count++ if $name =~ /^$initcall_section$/;
 	} elsif ($name =~ /^\.(?:rodata|init\.ramfs(?:\.info)?|alt\.smp\.init|pv_table|builtin_fw|ARM\.extab)(?:\..+)?$/ ||
 		 $name =~ /^(?:__ex_table|__ksymtab_strings|__bug_table|__tracepoints_strings)$/) {
 		check_section($section, 'PROGBITS', 'A', 'WX');
@@ -153,7 +156,7 @@ if (%unrecognized) {
 
 $initcall_count or die "$object: missing ordered initcall output\n";
 exists $by_name{'.symtab'} or die "$object: missing symbol table\n";
-open my $symbol_pipe, '-|', $readelf, '-sW', $object
+open my $symbol_pipe, '-|', @readelf, '-sW', $object
 	or die "cannot read symbols in $object: $!\n";
 my @unresolved_crc;
 while (my $line = <$symbol_pipe>) {

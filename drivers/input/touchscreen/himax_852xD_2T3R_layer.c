@@ -51,6 +51,16 @@
 #include <linux/psensor_himax.h>
 #endif
 
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+#include <linux/input/sweep2wake.h>
+#endif
+#ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE
+#include <linux/input/doubletap2wake.h>
+#endif
+#ifdef CONFIG_TOUCHSCREEN_WAKE_PWRKEY
+#include <linux/input/wake_pwrkey.h>
+#endif
+
 #define HIMAX_I2C_RETRY_TIMES 10
 #define FAKE_EVENT
 #define SUPPORT_FINGER_DATA_CHECKSUM 0x0F
@@ -282,12 +292,25 @@ struct himax_ts_data {
 	uint32_t pl_y_min;
 	uint32_t pl_y_max;
 	bool suspended;
+	bool gesture_wake;
+	/* SETDEEPSTB 1 was sent and not yet undone. */
+	bool deep_standby;
+	/* Orders suspend, resume and a gesture switch change. */
+	struct mutex suspend_lock;
+#ifdef CONFIG_TOUCHSCREEN_WAKE_PWRKEY
+	struct notifier_block gesture_notif;
+#endif
 };
 
 static struct himax_ts_data *private_ts;
 
 #define SWITCH_TO_HTC_EVENT_ONLY	1
 #define INJECT_HTC_EVENT		2
+
+#ifdef CONFIG_TOUCHSCREEN_WAKE_PWRKEY
+static int himax_wake_gesture_notify(struct notifier_block *nb,
+				     unsigned long event, void *data);
+#endif
 
 #if defined(CONFIG_FB)
 static int fb_notifier_callback(struct notifier_block *self,
@@ -5153,11 +5176,24 @@ static int himax_touch_sysfs_init(void)
 	}
 #endif
 
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+	sweep2wake_sysfs_init(android_touch_kobj);
+#endif
+#ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE
+	doubletap2wake_sysfs_init(android_touch_kobj);
+#endif
+
 	return 0 ;
 }
 
 static void himax_touch_sysfs_deinit(void)
 {
+#ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE
+	doubletap2wake_sysfs_exit(android_touch_kobj);
+#endif
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+	sweep2wake_sysfs_exit(android_touch_kobj);
+#endif
 	#ifdef HX_TP_SYS_DIAG
 	sysfs_remove_file(android_touch_kobj, &dev_attr_diag.attr);
 	#endif
@@ -6872,6 +6908,12 @@ static void himax_fb_register(struct work_struct *work)
 	ret = fb_register_client(&ts->fb_notif);
 	if (ret)
 		E(" Unable to register fb_notifier: %d\n", ret);
+#ifdef CONFIG_TOUCHSCREEN_WAKE_PWRKEY
+	ts->gesture_notif.notifier_call = himax_wake_gesture_notify;
+	ret = wake_gesture_register_notifier(&ts->gesture_notif);
+	if (ret)
+		E(" Unable to register wake gesture notifier: %d\n", ret);
+#endif
 }
 #endif
 
@@ -6965,6 +7007,7 @@ static int himax8528_probe(struct i2c_client *client, const struct i2c_device_id
 	}
 #endif
 	private_ts = ts;
+	mutex_init(&ts->suspend_lock);
 
 	I("%s, pdata, %X\n", __func__ ,(uint32_t)pdata);
 	
@@ -7244,6 +7287,9 @@ static int himax8528_remove(struct i2c_client *client)
 	struct himax_ts_data *ts = i2c_get_clientdata(client);
 
 	himax_touch_sysfs_deinit();
+#ifdef CONFIG_TOUCHSCREEN_WAKE_PWRKEY
+	wake_gesture_unregister_notifier(&ts->gesture_notif);
+#endif
 #ifdef CONFIG_FB
 	if (fb_unregister_client(&ts->fb_notif))
 		dev_err(&client->dev, "Error occurred while unregistering fb_notifier.\n");
@@ -7315,51 +7361,36 @@ out:
 }
 #endif
 
-static int himax8528_suspend(struct device *dev)
+/*
+ * A wake gesture needs the controller scanning while the screen is off, so
+ * suspend leaves it in active scan mode and arms its interrupt as a wake
+ * source instead of entering deep standby.
+ */
+static bool himax_wake_gesture_armed(void)
+{
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+	if (s2w_switch > 0 && !s2w_s2sonly)
+		return true;
+#endif
+#ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE
+	if (dt2w_switch > 0)
+		return true;
+#endif
+	return false;
+}
+
+/*
+ * Deep standby: interrupt off, then TSSOFF, TSSLPIN and SETDEEPSTB 1 with
+ * the controller's 30 ms settle times, and the 3.3 V rail off where the
+ * board allows it. Caller holds suspend_lock.
+ */
+static void himax_enter_deep_standby(struct himax_ts_data *ts)
 {
 	int ret;
 	uint8_t buf[2] = {0};
-	struct himax_ts_data *ts = dev_get_drvdata(dev);
-	if(ts->suspended)
-	{
-		I("%s: Already suspended. Skipped.\n", __func__);
-		return 0;
-	}
-	else
-	{
-		ts->suspended = true;
-		I("%s: enter\n", __func__);
-	}
-
-	if (atomic_read(&ts->in_flash)) {
-		I("[FW] flashing firmware, won't enter deep sleep now.\n");
-		atomic_set(&ts->suspend_mode, 1);
-		ts->first_pressed = 0;
-		ts->pre_finger_mask = 0;
-		return 0;
-	}
-
-#if defined(CONFIG_HIMAX_PROXIMITY)
-	if(g_proximity_en){
-		I("[Proximity],Proximity on, won't enter deep sleep now.\n");
-		atomic_set(&ts->suspend_mode, 1);
-		ts->first_pressed = 0;
-		ts->pre_finger_mask = 0;
-		return 0;
-	}
-#endif
-
-	#ifdef HX_TP_SYS_FLASH_DUMP
-	if (getFlashDumpGoing())
-	{
-		I("[himax] %s: Flash dump is going, reject suspend\n",__func__);
-		return 0;
-	}
-	#endif
 
 	himax_int_enable(0);
 
-	
 	buf[0] = HX_CMD_TSSOFF;
 	ret = i2c_himax_master_write(ts->client, buf, 1, HIMAX_I2C_RETRY_TIMES);
 	if (ret < 0)
@@ -7397,8 +7428,6 @@ static int himax8528_suspend(struct device *dev)
 			himax_int_enable(1);
 	}
 
-	
-	atomic_set(&ts->suspend_mode, 1);
 	ts->pre_finger_mask = 0;
 	if (ts->pdata->powerOff3V3 && ts->pdata->power)
 		ts->pdata->power(0);
@@ -7407,16 +7436,17 @@ static int himax8528_suspend(struct device *dev)
 	himax8528_hw_disable(ts);
 	#endif
 
-	return 0;
+	ts->deep_standby = true;
 }
 
-static int himax8528_resume(struct device *dev)
+/*
+ * Leaves deep standby: rail on, SETDEEPSTB 0, sense on (0x83) and sleep out
+ * (0x81) with their settle times, interrupt on. Caller holds suspend_lock.
+ */
+static void himax_exit_deep_standby(struct himax_ts_data *ts)
 {
-	int ret = 0;
-	uint8_t buf[5] = { 0 };
-	struct himax_ts_data *ts = dev_get_drvdata(dev);
-
-	I("%s: enter\n", __func__);
+	int ret;
+	uint8_t buf[2] = {0};
 
 	if (ts->pdata->powerOff3V3 && ts->pdata->power)
 		ts->pdata->power(1);
@@ -7438,15 +7468,156 @@ static int himax8528_resume(struct device *dev)
 	i2c_himax_write_command(ts->client, 0x83, HIMAX_I2C_RETRY_TIMES);
 	hr_msleep(30);
 	i2c_himax_write_command(ts->client, 0x81, HIMAX_I2C_RETRY_TIMES);
-	atomic_set(&ts->suspend_mode, 0);
-	ts->just_resume = 1;
 
 	himax_int_enable(1);
 
-	ts->suspended = false;
+	ts->deep_standby = false;
+}
+
+static int himax8528_suspend_locked(struct himax_ts_data *ts)
+{
+	int ret;
+
+	if(ts->suspended)
+	{
+		I("%s: Already suspended. Skipped.\n", __func__);
+		return 0;
+	}
+	else
+	{
+		ts->suspended = true;
+		I("%s: enter\n", __func__);
+	}
+
+	if (atomic_read(&ts->in_flash)) {
+		I("[FW] flashing firmware, won't enter deep sleep now.\n");
+		atomic_set(&ts->suspend_mode, 1);
+		ts->first_pressed = 0;
+		ts->pre_finger_mask = 0;
+		return 0;
+	}
+
+#if defined(CONFIG_HIMAX_PROXIMITY)
+	if(g_proximity_en){
+		I("[Proximity],Proximity on, won't enter deep sleep now.\n");
+		atomic_set(&ts->suspend_mode, 1);
+		ts->first_pressed = 0;
+		ts->pre_finger_mask = 0;
+		return 0;
+	}
+#endif
+
+	#ifdef HX_TP_SYS_FLASH_DUMP
+	if (getFlashDumpGoing())
+	{
+		I("[himax] %s: Flash dump is going, reject suspend\n",__func__);
+		return 0;
+	}
+	#endif
+
+	if (himax_wake_gesture_armed()) {
+		ret = enable_irq_wake(ts->client->irq);
+		if (!ret) {
+			ts->gesture_wake = true;
+			atomic_set(&ts->suspend_mode, 1);
+			ts->first_pressed = 0;
+			ts->pre_finger_mask = 0;
+			I("%s: wake gesture armed, controller stays active\n",
+				__func__);
+			return 0;
+		}
+		E("%s: enable_irq_wake failed (%d), entering deep standby\n",
+			__func__, ret);
+	}
+
+	himax_enter_deep_standby(ts);
+	atomic_set(&ts->suspend_mode, 1);
+
 	return 0;
 }
 
+static int himax8528_suspend(struct device *dev)
+{
+	struct himax_ts_data *ts = dev_get_drvdata(dev);
+	int ret;
+
+	mutex_lock(&ts->suspend_lock);
+	ret = himax8528_suspend_locked(ts);
+	mutex_unlock(&ts->suspend_lock);
+	return ret;
+}
+
+static int himax8528_resume(struct device *dev)
+{
+	struct himax_ts_data *ts = dev_get_drvdata(dev);
+
+	I("%s: enter\n", __func__);
+
+	mutex_lock(&ts->suspend_lock);
+	if (ts->gesture_wake) {
+		disable_irq_wake(ts->client->irq);
+		ts->gesture_wake = false;
+		atomic_set(&ts->suspend_mode, 0);
+		ts->suspended = false;
+		mutex_unlock(&ts->suspend_lock);
+		return 0;
+	}
+
+	himax_exit_deep_standby(ts);
+	atomic_set(&ts->suspend_mode, 0);
+	ts->just_resume = 1;
+
+	ts->suspended = false;
+	mutex_unlock(&ts->suspend_lock);
+	return 0;
+}
+
+#ifdef CONFIG_TOUCHSCREEN_WAKE_PWRKEY
+/*
+ * A gesture switch written while the screen is blanked moves the controller
+ * between deep standby and active scan through the same sequences as
+ * suspend and resume, and keeps one enable_irq_wake() per armed state.
+ * Blanked states that never entered deep standby (firmware flash,
+ * proximity, flash dump) stay as they are until the next blank. The caller
+ * is a sysfs store, so userspace is running and the I2C adapter is
+ * resumed; suspend_lock orders this against the system-suspend callback.
+ */
+static int himax_wake_gesture_notify(struct notifier_block *nb,
+				     unsigned long event, void *data)
+{
+	struct himax_ts_data *ts =
+		container_of(nb, struct himax_ts_data, gesture_notif);
+	bool armed;
+	int ret;
+
+	mutex_lock(&ts->suspend_lock);
+	if (!ts->suspended)
+		goto out;
+
+	armed = himax_wake_gesture_armed();
+	if (armed && !ts->gesture_wake && ts->deep_standby) {
+		ret = enable_irq_wake(ts->client->irq);
+		if (ret) {
+			E("%s: enable_irq_wake failed (%d), staying in deep standby\n",
+				__func__, ret);
+			goto out;
+		}
+		himax_exit_deep_standby(ts);
+		ts->first_pressed = 0;
+		ts->pre_finger_mask = 0;
+		ts->gesture_wake = true;
+		I("%s: wake gesture armed while blanked\n", __func__);
+	} else if (!armed && ts->gesture_wake) {
+		disable_irq_wake(ts->client->irq);
+		ts->gesture_wake = false;
+		himax_enter_deep_standby(ts);
+		I("%s: wake gesture disarmed while blanked\n", __func__);
+	}
+out:
+	mutex_unlock(&ts->suspend_lock);
+	return NOTIFY_OK;
+}
+#endif
 
 #if defined(CONFIG_FB)
 static int fb_notifier_callback(struct notifier_block *self,

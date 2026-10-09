@@ -73,13 +73,13 @@
 
 #define fmrx(_vfp_) ({			\
 	u32 __v;			\
-	asm(".fpu vfpv3\n\tvmrs %0, " vfpreg(_vfp_) " @ fmrx	%0, " #_vfp_	\
+	asm volatile(".fpu vfpv3\n\tvmrs %0, " vfpreg(_vfp_) " @ fmrx	%0, " #_vfp_	\
 	    : "=r" (__v) : : "cc");	\
 	__v;				\
  })
 
 #define fmxr(_vfp_,_var_)		\
-	asm(".fpu vfpv3\n\tvmsr " vfpreg(_vfp_) ", %0 @ fmxr	" #_vfp_ ", %0"	\
+	asm volatile(".fpu vfpv3\n\tvmsr " vfpreg(_vfp_) ", %0 @ fmxr	" #_vfp_ ", %0"	\
 	   : : "r" (_var_) : "cc")
 
 u32 vfp_single_cpdo(u32 inst, u32 fpscr);
