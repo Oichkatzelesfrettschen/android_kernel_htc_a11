@@ -150,6 +150,9 @@ TRACE_EVENT(sched_waking,
 		__entry->pid = p->pid;
 		__entry->prio = p->prio;
 		__entry->target_cpu = task_cpu(p);
+	)
+	TP_perf_assign(
+		__perf_task(p);
 	),
 
 	TP_printk("comm=%s pid=%d prio=%d target_cpu=%03d",
