@@ -800,7 +800,7 @@ static int exfat_file_fsync(struct file *filp, int datasync)
 #else
 	res = generic_file_fsync(filp, datasync);
 #endif
-	err = FsSyncVol(sb, 1);
+	err = FsSyncVol(sb, 1) ? -EIO : 0;
 
 	return res ? res : err;
 }
@@ -2076,7 +2076,8 @@ static int exfat_write_inode(struct inode *inode, struct writeback_control *wbc)
 	exfat_time_unix2fat(sbi, &inode->i_ctime, &info.CreateTimestamp);
 	exfat_time_unix2fat(sbi, &inode->i_atime, &info.AccessTimestamp);
 
-	FsWriteStat(inode, &info);
+	if (FsWriteStat(inode, &info))
+		return -EIO;
 
 	return 0;
 }
@@ -2172,7 +2173,7 @@ static int exfat_sync_fs(struct super_block *sb, int wait)
 	if (__is_sb_dirty(sb)) {
 		__lock_super(sb);
 		__set_sb_clean(sb);
-		err = FsSyncVol(sb, 1);
+		err = FsSyncVol(sb, 1) ? -EIO : 0;
 		__unlock_super(sb);
 	}
 
@@ -2475,7 +2476,8 @@ static int exfat_read_root(struct inode *inode)
 
 	EXFAT_I(inode)->target = NULL;
 
-	FsReadStat(inode, &info);
+	if (FsReadStat(inode, &info))
+		return -EIO;
 
 	inode->i_uid = sbi->options.fs_uid;
 	inode->i_gid = sbi->options.fs_gid;

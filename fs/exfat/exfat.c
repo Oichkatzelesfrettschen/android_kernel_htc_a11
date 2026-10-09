@@ -305,14 +305,16 @@ INT32 ffsGetVolInfo(struct super_block *sb, VOL_INFO_T *info)
 INT32 ffsSyncVol(struct super_block *sb, INT32 do_sync)
 {
 	FS_INFO_T *p_fs = &(EXFAT_SB(sb)->fs_info);
+	INT32 err;
 
-	fs_sync(sb, do_sync);
-	fs_set_vol_flags(sb, VOL_CLEAN);
+	err = fs_sync(sb, do_sync);
+	if (err == FFS_SUCCESS)
+		fs_set_vol_flags(sb, VOL_CLEAN);
 
 	if (p_fs->dev_ejected)
 		return FFS_MEDIAERR;
 
-	return FFS_SUCCESS;
+	return err;
 }
 
 INT32 ffsLookupFile(struct inode *inode, UINT8 *path, FILE_ID_T *fid)
@@ -1740,10 +1742,12 @@ void fs_set_vol_flags(struct super_block *sb, UINT32 new_flag)
 	}
 }
 
-void fs_sync(struct super_block *sb, INT32 do_sync)
+INT32 fs_sync(struct super_block *sb, INT32 do_sync)
 {
-	if (do_sync)
-		bdev_sync(sb);
+	if (do_sync && bdev_sync(sb))
+		return FFS_MEDIAERR;
+
+	return FFS_SUCCESS;
 }
 
 void fs_error(struct super_block *sb)

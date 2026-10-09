@@ -489,7 +489,7 @@ extern "C" {
 	INT32  fs_init(void);
 	INT32  fs_shutdown(void);
 	void   fs_set_vol_flags(struct super_block *sb, UINT32 new_flag);
-	void   fs_sync(struct super_block *sb, INT32 do_sync);
+	INT32  fs_sync(struct super_block *sb, INT32 do_sync);
 	void   fs_error(struct super_block *sb);
 
 	INT32   clear_cluster(struct super_block *sb, UINT32 clu);
