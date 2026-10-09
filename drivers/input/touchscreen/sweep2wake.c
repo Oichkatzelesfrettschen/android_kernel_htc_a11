@@ -191,8 +191,13 @@ static void detect_sweep2wake(int sweep_coord, int sweep_height, bool st)
 			sweep_coord = swap_temp2;
 		}
 
+		/*
+		 * The sleep sweep runs right to left along the bottom edge: it
+		 * starts left of DEFAULT_S2W_X_MAX - s2w_threshold and ends left
+		 * of s2w_threshold.
+		 */
 		scr_on_touch=true;
-		prev_coord = (DEFAULT_S2W_X_MAX - DEFAULT_S2W_X_FINAL);
+		prev_coord = (DEFAULT_S2W_X_MAX - s2w_threshold);
 		next_coord = DEFAULT_S2W_X_B2;
 		if ((barrier[0] == true) ||
 		   ((sweep_coord < prev_coord) &&
@@ -209,7 +214,7 @@ static void detect_sweep2wake(int sweep_coord, int sweep_height, bool st)
 				barrier[1] = true;
 				if ((sweep_coord < prev_coord) &&
 				    (sweep_height > DEFAULT_S2W_Y_LIMIT)) {
-					if (sweep_coord < DEFAULT_S2W_X_FINAL) {
+					if (sweep_coord < s2w_threshold) {
 						if (exec_count) {
 							pr_info(LOGTAG"OFF\n");
 							sweep2wake_pwrtrigger();
@@ -280,14 +285,18 @@ static ssize_t s2w_threshold_show(struct kobject *kobj,
 	return sprintf(buf, "%i\n", s2w_threshold);
 }
 
+/* The threshold is an X distance inside the 0..DEFAULT_S2W_X_MAX window. */
 static ssize_t s2w_threshold_store(struct kobject *kobj,
 	struct kobj_attribute *attr, const char *buf, size_t count)
 {
-	unsigned int data;
-	if(sscanf(buf, "%i\n", &data) == 1)
-		s2w_threshold = data;
-	else
-		pr_info("%s: unknown input!\n", __FUNCTION__);
+	int data;
+	int rc = kstrtoint(buf, 0, &data);
+
+	if (rc)
+		return rc;
+	if (data < 0 || data > DEFAULT_S2W_X_MAX)
+		return -EINVAL;
+	s2w_threshold = data;
 	return count;
 }
 
