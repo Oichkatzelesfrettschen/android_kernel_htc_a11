@@ -224,7 +224,7 @@ static void dt2w_input_event(struct input_handle *handle, unsigned int type,
 
 /* The Himax HM852xD driver registers its touch input device under this name. */
 static int input_dev_filter(struct input_dev *dev) {
-	return strcmp(dev->name, "himax-touchscreen") ? 1 : 0;
+	return !dev->name || strcmp(dev->name, "himax-touchscreen") ? 1 : 0;
 }
 
 /* Seeds the slot cache from the values the input core already holds. */
