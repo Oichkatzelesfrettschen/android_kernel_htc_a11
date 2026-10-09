@@ -26,30 +26,41 @@
 #include <linux/spinlock.h>
 #include <linux/notifier.h>
 #include <linux/suspend.h>
+#include <linux/string.h>
 
 
 #define MAX_WAKEUP_REASON_IRQS 32
+#define WAKEUP_REASON_NAME_LEN 32
 static int irq_list[MAX_WAKEUP_REASON_IRQS];
+static char irq_names[MAX_WAKEUP_REASON_IRQS][WAKEUP_REASON_NAME_LEN];
 static int irqcount;
 static struct kobject *wakeup_reason;
 static spinlock_t resume_reason_lock;
 
+/*
+ * The action name is copied under desc->lock at log time, the point where
+ * free_irq() cannot release the irqaction; the show path reads only the
+ * snapshot, under resume_reason_lock, and never touches the irq_desc.
+ */
 static ssize_t last_resume_reason_show(struct kobject *kobj, struct kobj_attribute *attr,
 		char *buf)
 {
 	int irq_no, buf_offset = 0;
-	struct irq_desc *desc;
-	spin_lock(&resume_reason_lock);
-	for (irq_no = 0; irq_no < irqcount; irq_no++) {
-		desc = irq_to_desc(irq_list[irq_no]);
-		if (desc && desc->action && desc->action->name)
-			buf_offset += sprintf(buf + buf_offset, "%d %s\n",
-					irq_list[irq_no], desc->action->name);
+	unsigned long flags;
+
+	spin_lock_irqsave(&resume_reason_lock, flags);
+	for (irq_no = 0; irq_no < irqcount && buf_offset < PAGE_SIZE - 1;
+			irq_no++) {
+		if (irq_names[irq_no][0])
+			buf_offset += scnprintf(buf + buf_offset,
+					PAGE_SIZE - buf_offset, "%d %s\n",
+					irq_list[irq_no], irq_names[irq_no]);
 		else
-			buf_offset += sprintf(buf + buf_offset, "%d\n",
+			buf_offset += scnprintf(buf + buf_offset,
+					PAGE_SIZE - buf_offset, "%d\n",
 					irq_list[irq_no]);
 	}
-	spin_unlock(&resume_reason_lock);
+	spin_unlock_irqrestore(&resume_reason_lock, flags);
 	return buf_offset;
 }
 
@@ -70,34 +81,47 @@ static struct attribute_group attr_group = {
 void log_wakeup_reason(int irq)
 {
 	struct irq_desc *desc;
+	unsigned long flags, dflags;
+	char name[WAKEUP_REASON_NAME_LEN] = "";
+
 	desc = irq_to_desc(irq);
-	if (desc && desc->action && desc->action->name)
-		printk(KERN_INFO "Resume caused by IRQ %d, %s\n", irq,
-				desc->action->name);
+	if (desc) {
+		raw_spin_lock_irqsave(&desc->lock, dflags);
+		if (desc->action && desc->action->name)
+			strlcpy(name, desc->action->name, sizeof(name));
+		raw_spin_unlock_irqrestore(&desc->lock, dflags);
+	}
+
+	if (name[0])
+		printk(KERN_INFO "Resume caused by IRQ %d, %s\n", irq, name);
 	else
 		printk(KERN_INFO "Resume caused by IRQ %d\n", irq);
 
-	spin_lock(&resume_reason_lock);
+	spin_lock_irqsave(&resume_reason_lock, flags);
 	if (irqcount == MAX_WAKEUP_REASON_IRQS) {
-		spin_unlock(&resume_reason_lock);
+		spin_unlock_irqrestore(&resume_reason_lock, flags);
 		printk(KERN_WARNING "Resume caused by more than %d IRQs\n",
 				MAX_WAKEUP_REASON_IRQS);
 		return;
 	}
 
-	irq_list[irqcount++] = irq;
-	spin_unlock(&resume_reason_lock);
+	irq_list[irqcount] = irq;
+	strlcpy(irq_names[irqcount], name, WAKEUP_REASON_NAME_LEN);
+	irqcount++;
+	spin_unlock_irqrestore(&resume_reason_lock, flags);
 }
 
 /* Detects a suspend and clears all the previous wake up reasons*/
 static int wakeup_reason_pm_event(struct notifier_block *notifier,
 		unsigned long pm_event, void *unused)
 {
+	unsigned long flags;
+
 	switch (pm_event) {
 	case PM_SUSPEND_PREPARE:
-		spin_lock(&resume_reason_lock);
+		spin_lock_irqsave(&resume_reason_lock, flags);
 		irqcount = 0;
-		spin_unlock(&resume_reason_lock);
+		spin_unlock_irqrestore(&resume_reason_lock, flags);
 		break;
 	default:
 		break;
