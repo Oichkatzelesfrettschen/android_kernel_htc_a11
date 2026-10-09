@@ -141,7 +141,7 @@ void __init msm8226_init(void)
 	msm8226_add_drivers();
 }
 
-static const char *msm8226_dt_match[] __initconst = {
+static const char * const msm8226_dt_match[] __initconst = {
 	"qcom,msm8226",
 	"qcom,msm8926",
 	"qcom,apq8026",

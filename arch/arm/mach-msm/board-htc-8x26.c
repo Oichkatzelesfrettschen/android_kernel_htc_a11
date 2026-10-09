@@ -744,7 +744,7 @@ void __init htc_8226_init(void)
 #endif
 }
 
-static const char *htc_8226_dt_match[] __initconst = {
+static const char * const htc_8226_dt_match[] __initconst = {
 	"htc,memwl",
 	"htc,a11ul",
 	NULL
