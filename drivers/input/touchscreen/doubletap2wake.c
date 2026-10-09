@@ -350,10 +350,12 @@ static int dt2w_set_switch(int val)
 static ssize_t dt2w_doubletap2wake_dump(struct kobject *kobj,
 		struct kobj_attribute *attr, const char *buf, size_t count)
 {
-	if (buf[0] >= '0' && buf[0] <= '2' && buf[1] == '\n')
-		return dt2w_set_switch(buf[0] - '0') ? : count;
+	unsigned int val;
 
-	return count;
+	if (kstrtouint(buf, 10, &val) || val > 2)
+		return -EINVAL;
+
+	return dt2w_set_switch(val) ? : count;
 }
 
 static struct kobj_attribute dev_attr_doubletap2wake =
