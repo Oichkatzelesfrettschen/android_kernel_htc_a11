@@ -4602,6 +4602,11 @@ INT32 exfat_mount(struct super_block *sb, PBR_SECTOR_T *p_pbr)
 	p_fs->root_start_sector = p_fs->PBR_sector + GET32(p_bpb->clu_offset);
 	p_fs->data_start_sector = p_fs->root_start_sector;
 
+	/* FS_INFO_T.num_sectors and the sector arithmetic built on it hold 32
+	 * bits; mount refuses a volume whose vol_length exceeds that range. */
+	if (GET64(p_bpb->vol_length) > (UINT64) CLUSTER_32(~0))
+		return FFS_FORMATERR;
+
 	p_fs->num_sectors = GET64(p_bpb->vol_length);
 	p_fs->num_clusters = GET32(p_bpb->clu_count) + 2;
 
