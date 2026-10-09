@@ -1440,6 +1440,32 @@ static void report_sec_mismatch(const char *modname,
 	fprintf(stderr, "\n");
 }
 
+/*
+ * GCC LTO renames a static that it promotes across partitions to
+ * <name>.lto_priv.<n>. The whitelist patterns name the source symbol, so
+ * they match against the name without that suffix; reports keep the full
+ * name.
+ */
+static const char *lto_source_name(const char *name, char *buf, size_t size)
+{
+	static const char suffix[] = ".lto_priv.";
+	const char *found = strstr(name, suffix);
+	const char *digits;
+	size_t length;
+
+	if (!found)
+		return name;
+	digits = found + sizeof(suffix) - 1;
+	if (*digits == '\0' || digits[strspn(digits, "0123456789")] != '\0')
+		return name;
+	length = found - name;
+	if (length >= size)
+		return name;
+	memcpy(buf, name, length);
+	buf[length] = '\0';
+	return buf;
+}
+
 static void check_section_mismatch(const char *modname, struct elf_info *elf,
                                    Elf_Rela *r, Elf_Sym *sym, const char *fromsec)
 {
@@ -1453,6 +1479,8 @@ static void check_section_mismatch(const char *modname, struct elf_info *elf,
 		Elf_Sym *from;
 		const char *tosym;
 		const char *fromsym;
+		char from_source[256];
+		char to_source[256];
 
 		from = find_elf_symbol2(elf, r->r_offset, fromsec);
 		fromsym = sym_name(elf, from);
@@ -1460,8 +1488,9 @@ static void check_section_mismatch(const char *modname, struct elf_info *elf,
 		tosym = sym_name(elf, to);
 
 		/* check whitelist - we may ignore it */
-		if (secref_whitelist(mismatch,
-					fromsec, fromsym, tosec, tosym)) {
+		if (secref_whitelist(mismatch, fromsec,
+			lto_source_name(fromsym, from_source, sizeof(from_source)),
+			tosec, lto_source_name(tosym, to_source, sizeof(to_source)))) {
 			report_sec_mismatch(modname, mismatch,
 			   fromsec, r->r_offset, fromsym,
 			   is_function(from), tosec, tosym,
