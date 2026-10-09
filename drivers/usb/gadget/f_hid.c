@@ -14,7 +14,9 @@
 #include <linux/module.h>
 #include <linux/hid.h>
 #include <linux/cdev.h>
+#include <linux/kref.h>
 #include <linux/mutex.h>
+#include <linux/slab.h>
 #include <linux/poll.h>
 #include <linux/uaccess.h>
 #include <linux/wait.h>
@@ -48,47 +50,40 @@ struct f_hidg {
 	wait_queue_head_t		write_queue;
 	struct usb_request		*req;
 
+	/*
+	 * Set by hidg_unbind() under lock and spinlock. Read, write and poll
+	 * test it under the lock they already hold and fail with -ESHUTDOWN
+	 * or POLLERR | POLLHUP once it is set.
+	 */
+	bool				unbound;
+	/*
+	 * One reference for the bound function, one per open file and one
+	 * for a queued IN request; the last put frees the instance.
+	 */
+	struct kref			kref;
+
 	int				minor;
-	struct cdev			cdev;
+	struct cdev			*cdev;
 	struct usb_function		func;
 	struct usb_ep			*in_ep;
 };
 
-/* Hacky device list to fix f_hidg_write being called after device destroyed.
-   It covers only most common race conditions, there will be rare crashes anyway. */
-enum { HACKY_DEVICE_LIST_SIZE = 4 };
-static struct f_hidg *hacky_device_list[HACKY_DEVICE_LIST_SIZE];
-static void hacky_device_list_add(struct f_hidg *hidg)
+/*
+ * Bound instance per minor. f_hidg_open() takes its reference under
+ * hidg_table_lock and hidg_unbind() clears the entry under it, so an open
+ * either holds a live instance or fails with -ENODEV. A file opened before
+ * the unbind keeps its own instance after a rebind reuses the minor.
+ */
+static struct f_hidg **hidg_table;
+static DEFINE_MUTEX(hidg_table_lock);
+
+static void hidg_free(struct kref *kref)
 {
-	int i;
-	for (i = 0; i < HACKY_DEVICE_LIST_SIZE; i++) {
-		if (!hacky_device_list[i]) {
-			hacky_device_list[i] = hidg;
-			return;
-		}
-	}
-	pr_err("%s: too many devices, not adding device %p\n", __func__, hidg);
-}
-static void hacky_device_list_remove(struct f_hidg *hidg)
-{
-	int i;
-	for (i = 0; i < HACKY_DEVICE_LIST_SIZE; i++) {
-		if (hacky_device_list[i] == hidg) {
-			hacky_device_list[i] = NULL;
-			return;
-		}
-	}
-	pr_err("%s: cannot find device %p\n", __func__, hidg);
-}
-static int hacky_device_list_check(struct f_hidg *hidg)
-{
-	int i;
-	for (i = 0; i < HACKY_DEVICE_LIST_SIZE; i++) {
-		if (hacky_device_list[i] == hidg) {
-			return 0;
-		}
-	}
-	return 1;
+	struct f_hidg *hidg = container_of(kref, struct f_hidg, kref);
+
+	kfree(hidg->report_desc);
+	kfree(hidg->set_report_buff);
+	kfree(hidg);
 }
 
 static inline struct f_hidg *func_to_hidg(struct usb_function *f)
@@ -179,14 +174,9 @@ static ssize_t f_hidg_read(struct file *file, char __user *buffer,
 	if (!access_ok(VERIFY_WRITE, buffer, count))
 		return -EFAULT;
 
-	if (hacky_device_list_check(hidg)) {
-		pr_err("%s: trying to read from device %p that was destroyed\n", __func__, hidg);
-		return -EIO;
-	}
-
 	spin_lock_irqsave(&hidg->spinlock, flags);
 
-#define READ_COND (hidg->set_report_buff != NULL)
+#define READ_COND (hidg->set_report_buff != NULL || hidg->unbound)
 
 	while (!READ_COND) {
 		spin_unlock_irqrestore(&hidg->spinlock, flags);
@@ -199,6 +189,10 @@ static ssize_t f_hidg_read(struct file *file, char __user *buffer,
 		spin_lock_irqsave(&hidg->spinlock, flags);
 	}
 
+	if (hidg->unbound) {
+		spin_unlock_irqrestore(&hidg->spinlock, flags);
+		return -ESHUTDOWN;
+	}
 
 	count = min_t(unsigned, count, hidg->set_report_length);
 	tmp_buff = hidg->set_report_buff;
@@ -216,17 +210,29 @@ static ssize_t f_hidg_read(struct file *file, char __user *buffer,
 	return count;
 }
 
+/*
+ * Runs from the UDC interrupt or from usb_ep_disable() giving back a queued
+ * request with -ESHUTDOWN. A request that hidg_unbind() detached while it
+ * was still pending is freed here.
+ */
 static void f_hidg_req_complete(struct usb_ep *ep, struct usb_request *req)
 {
-	struct f_hidg *hidg = (struct f_hidg *)ep->driver_data;
+	struct f_hidg *hidg = req->context;
+	unsigned long flags;
 
-	if (req->status != 0) {
-		ERROR(hidg->func.config->cdev,
-			"End Point Request ERROR: %d\n", req->status);
-	}
+	if (req->status != 0 && req->status != -ESHUTDOWN)
+		pr_err("%s: IN request status %d\n", __func__, req->status);
 
+	spin_lock_irqsave(&hidg->spinlock, flags);
 	hidg->write_pending = 0;
+	if (hidg->req != req) {
+		kfree(req->buf);
+		usb_ep_free_request(ep, req);
+	}
+	spin_unlock_irqrestore(&hidg->spinlock, flags);
+
 	wake_up(&hidg->write_queue);
+	kref_put(&hidg->kref, hidg_free);
 }
 
 static ssize_t f_hidg_write(struct file *file, const char __user *buffer,
@@ -238,14 +244,9 @@ static ssize_t f_hidg_write(struct file *file, const char __user *buffer,
 	if (!access_ok(VERIFY_READ, buffer, count))
 		return -EFAULT;
 
-	if (hacky_device_list_check(hidg)) {
-		pr_err("%s: trying to write to device %p that was destroyed\n", __func__, hidg);
-		return -EIO;
-	}
-
 	mutex_lock(&hidg->lock);
 
-#define WRITE_COND (!hidg->write_pending)
+#define WRITE_COND (!hidg->write_pending || hidg->unbound)
 
 	/* write queue */
 	while (!WRITE_COND) {
@@ -257,20 +258,18 @@ static ssize_t f_hidg_write(struct file *file, const char __user *buffer,
 				hidg->write_queue, WRITE_COND))
 			return -ERESTARTSYS;
 
-		if (hacky_device_list_check(hidg)) {
-			pr_err("%s: trying to write to device %p that was destroyed\n", __func__, hidg);
-			return -EIO;
-		}
-
 		mutex_lock(&hidg->lock);
+	}
+
+	if (hidg->unbound) {
+		mutex_unlock(&hidg->lock);
+		return -ESHUTDOWN;
 	}
 
 	count  = min_t(unsigned, count, hidg->report_length);
 	status = copy_from_user(hidg->req->buf, buffer, count);
 
 	if (status != 0) {
-		ERROR(hidg->func.config->cdev,
-			"copy_from_user error\n");
 		mutex_unlock(&hidg->lock);
 		return -EINVAL;
 	}
@@ -281,12 +280,15 @@ static ssize_t f_hidg_write(struct file *file, const char __user *buffer,
 	hidg->req->complete = f_hidg_req_complete;
 	hidg->req->context  = hidg;
 	hidg->write_pending = 1;
+	kref_get(&hidg->kref);
 
 	status = usb_ep_queue(hidg->in_ep, hidg->req, GFP_ATOMIC);
 	if (status < 0) {
-		ERROR(hidg->func.config->cdev,
-			"usb_ep_queue error on int endpoint %zd\n", status);
+		pr_err("%s: usb_ep_queue error on int endpoint %zd\n",
+			__func__, status);
 		hidg->write_pending = 0;
+		/* The open file still holds a reference. */
+		kref_put(&hidg->kref, hidg_free);
 		wake_up(&hidg->write_queue);
 	} else {
 		status = count;
@@ -301,26 +303,21 @@ static unsigned int f_hidg_poll(struct file *file, poll_table *wait)
 {
 	struct f_hidg	*hidg  = file->private_data;
 	unsigned int	ret = 0;
-
-	if (hacky_device_list_check(hidg)) {
-		pr_err("%s: trying to poll device %p that was destroyed\n", __func__, hidg);
-		return POLLERR | POLLHUP;
-	}
+	unsigned long	flags;
 
 	poll_wait(file, &hidg->read_queue, wait);
-
-	if (hacky_device_list_check(hidg)) {
-		pr_err("%s: trying to poll device %p that was destroyed\n", __func__, hidg);
-		return POLLERR | POLLHUP;
-	}
-
 	poll_wait(file, &hidg->write_queue, wait);
 
-	if (WRITE_COND)
-		ret |= POLLOUT | POLLWRNORM;
-
-	if (READ_COND)
-		ret |= POLLIN | POLLRDNORM;
+	spin_lock_irqsave(&hidg->spinlock, flags);
+	if (hidg->unbound) {
+		ret = POLLERR | POLLHUP;
+	} else {
+		if (WRITE_COND)
+			ret |= POLLOUT | POLLWRNORM;
+		if (READ_COND)
+			ret |= POLLIN | POLLRDNORM;
+	}
+	spin_unlock_irqrestore(&hidg->spinlock, flags);
 
 	return ret;
 }
@@ -328,16 +325,34 @@ static unsigned int f_hidg_poll(struct file *file, poll_table *wait)
 #undef WRITE_COND
 #undef READ_COND
 
+/*
+ * __fput() calls release before cdev_put(), so the cdev is allocated apart
+ * from the instance by cdev_alloc() and outlives it until the last file
+ * closes; the instance reference the file holds is dropped here.
+ */
 static int f_hidg_release(struct inode *inode, struct file *fd)
 {
+	struct f_hidg *hidg = fd->private_data;
+
 	fd->private_data = NULL;
+	kref_put(&hidg->kref, hidg_free);
 	return 0;
 }
 
 static int f_hidg_open(struct inode *inode, struct file *fd)
 {
-	struct f_hidg *hidg =
-		container_of(inode->i_cdev, struct f_hidg, cdev);
+	unsigned int minor = iminor(inode);
+	struct f_hidg *hidg = NULL;
+
+	mutex_lock(&hidg_table_lock);
+	if (hidg_table && minor < (unsigned int)minors)
+		hidg = hidg_table[minor];
+	if (hidg)
+		kref_get(&hidg->kref);
+	mutex_unlock(&hidg_table_lock);
+
+	if (!hidg)
+		return -ENODEV;
 
 	fd->private_data = hidg;
 
@@ -525,10 +540,17 @@ static int hidg_bind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct usb_ep		*ep;
 	struct f_hidg		*hidg = func_to_hidg(f);
+	struct device		*device;
 	int			status;
 	dev_t			dev;
 
 	pr_info("%s: creating device %p\n", __func__, hidg);
+
+	mutex_lock(&hidg_table_lock);
+	status = hidg_table[hidg->minor] ? -EBUSY : 0;
+	mutex_unlock(&hidg_table_lock);
+	if (status)
+		goto fail;
 
 	/* allocate instance-specific interface IDs, and patch descriptors */
 	status = usb_interface_id(c, f);
@@ -585,23 +607,36 @@ static int hidg_bind(struct usb_configuration *c, struct usb_function *f)
 			goto fail;
 	}
 
-	mutex_init(&hidg->lock);
-	spin_lock_init(&hidg->spinlock);
-	init_waitqueue_head(&hidg->write_queue);
-	init_waitqueue_head(&hidg->read_queue);
-
 	/* create char device */
-	cdev_init(&hidg->cdev, &f_hidg_fops);
-	dev = MKDEV(major, hidg->minor);
-	status = cdev_add(&hidg->cdev, dev, 1);
-	if (status)
+	status = -ENOMEM;
+	hidg->cdev = cdev_alloc();
+	if (!hidg->cdev)
 		goto fail;
+	hidg->cdev->owner = THIS_MODULE;
+	hidg->cdev->ops = &f_hidg_fops;
+	dev = MKDEV(major, hidg->minor);
+	status = cdev_add(hidg->cdev, dev, 1);
+	if (status)
+		goto fail_cdev_put;
 
-	device_create(hidg_class, NULL, dev, NULL, "%s%d", "hidg", hidg->minor);
-	hacky_device_list_add(hidg);
+	device = device_create(hidg_class, NULL, dev, NULL,
+			       "%s%d", "hidg", hidg->minor);
+	if (IS_ERR(device)) {
+		status = PTR_ERR(device);
+		goto fail_cdev_del;
+	}
+
+	mutex_lock(&hidg_table_lock);
+	hidg_table[hidg->minor] = hidg;
+	mutex_unlock(&hidg_table_lock);
 
 	return 0;
 
+fail_cdev_del:
+	cdev_del(hidg->cdev);
+	goto fail;
+fail_cdev_put:
+	kobject_put(&hidg->cdev->kobj);
 fail:
 	ERROR(f->config->cdev, "hidg_bind FAILED\n");
 	if (hidg->req != NULL) {
@@ -616,35 +651,57 @@ fail:
 	return status;
 }
 
+/*
+ * Order: the table entry goes first so no new open finds the instance; the
+ * unbound flag then stops every file operation before it touches the
+ * request or the endpoint, and the wakeups release blocked readers and
+ * writers. usb_ep_disable() gives a queued request back with -ESHUTDOWN.
+ * A request whose completion still runs on another CPU is left to
+ * f_hidg_req_complete() to free. Open files keep the instance until their
+ * release.
+ */
 static void hidg_unbind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct f_hidg *hidg = func_to_hidg(f);
+	struct usb_request *req;
+	unsigned long flags;
+	bool pending;
 
 	pr_info("%s: destroying device %p\n", __func__, hidg);
-	/* This does not cover all race conditions, only most common one */
+
+	mutex_lock(&hidg_table_lock);
+	hidg_table[hidg->minor] = NULL;
+	mutex_unlock(&hidg_table_lock);
+
 	mutex_lock(&hidg->lock);
-	hacky_device_list_remove(hidg);
+	spin_lock_irqsave(&hidg->spinlock, flags);
+	hidg->unbound = true;
+	spin_unlock_irqrestore(&hidg->spinlock, flags);
 	mutex_unlock(&hidg->lock);
 
+	wake_up_all(&hidg->read_queue);
+	wake_up_all(&hidg->write_queue);
+
 	device_destroy(hidg_class, MKDEV(major, hidg->minor));
-	cdev_del(&hidg->cdev);
+	cdev_del(hidg->cdev);
 
-	/* disable/free request and end point */
 	usb_ep_disable(hidg->in_ep);
-	/* TODO: calling this function crash kernel,
-	   not calling this funct ion crash kernel inside f_hidg_write */
-	/* usb_ep_dequeue(hidg->in_ep, hidg->req); */
 
-	kfree(hidg->req->buf);
-	usb_ep_free_request(hidg->in_ep, hidg->req);
+	spin_lock_irqsave(&hidg->spinlock, flags);
+	req = hidg->req;
+	hidg->req = NULL;
+	pending = hidg->write_pending;
+	spin_unlock_irqrestore(&hidg->spinlock, flags);
+	if (!pending) {
+		kfree(req->buf);
+		usb_ep_free_request(hidg->in_ep, req);
+	}
 
 	/* free descriptors copies */
 	usb_free_descriptors(f->hs_descriptors);
 	usb_free_descriptors(f->descriptors);
 
-	kfree(hidg->report_desc);
-	kfree(hidg->set_report_buff);
-	kfree(hidg);
+	kref_put(&hidg->kref, hidg_free);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -706,6 +763,12 @@ int hidg_bind_config(struct usb_configuration *c,
 		return -ENOMEM;
 	}
 
+	kref_init(&hidg->kref);
+	mutex_init(&hidg->lock);
+	spin_lock_init(&hidg->spinlock);
+	init_waitqueue_head(&hidg->write_queue);
+	init_waitqueue_head(&hidg->read_queue);
+
 	hidg->func.name    = "hid";
 	hidg->func.strings = ct_func_strings;
 	hidg->func.bind    = hidg_bind;
@@ -716,7 +779,7 @@ int hidg_bind_config(struct usb_configuration *c,
 
 	status = usb_add_function(c, &hidg->func);
 	if (status)
-		kfree(hidg);
+		kref_put(&hidg->kref, hidg_free);
 
 	return status;
 }
@@ -734,20 +797,34 @@ int ghid_setup(struct usb_gadget *g, int count)
 	}
 
 	status = alloc_chrdev_region(&dev, 0, count, "hidg");
-	if (!status) {
+	if (status)
+		return status;
+
+	mutex_lock(&hidg_table_lock);
+	hidg_table = kcalloc(count, sizeof(*hidg_table), GFP_KERNEL);
+	if (hidg_table) {
 		major = MAJOR(dev);
 		minors = count;
 	}
+	mutex_unlock(&hidg_table_lock);
+	if (!hidg_table) {
+		unregister_chrdev_region(dev, count);
+		return -ENOMEM;
+	}
 
-	return status;
+	return 0;
 }
 
 void ghid_cleanup(void)
 {
+	mutex_lock(&hidg_table_lock);
 	if (major) {
 		unregister_chrdev_region(MKDEV(major, 0), minors);
 		major = minors = 0;
 	}
+	kfree(hidg_table);
+	hidg_table = NULL;
+	mutex_unlock(&hidg_table_lock);
 
 	class_destroy(hidg_class);
 	hidg_class = NULL;
