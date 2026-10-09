@@ -612,6 +612,23 @@ KBUILD_CFLAGS += $(CC_FLAGS_LTO)
 export CC_FLAGS_LTO DISABLE_LTO
 endif
 
+ifeq ($(CONFIG_LTO_GCC),y)
+ifeq ($(LLVM),1)
+$(error CONFIG_LTO_GCC requires the GCC toolchain; CONFIG_LTO_CLANG_THIN serves LLVM=1)
+endif
+# A fat LTO object carries native code beside its GIMPLE, so binutils ar, nm
+# and objdump read its symbols without the linker plugin. With
+# -fno-toplevel-reorder the LTO partitioner emits variables and top-level asm
+# in input order, the order linker tables such as .init.setup inherit.
+# -fno-pic replaces the toolchain's default -fpic, under which every global
+# function stays interposable and the LTO link inlines nothing across
+# objects.
+CC_FLAGS_LTO := -flto -ffat-lto-objects -fno-toplevel-reorder
+DISABLE_LTO := -fno-lto
+KBUILD_CFLAGS += -fno-pic $(CC_FLAGS_LTO)
+export CC_FLAGS_LTO DISABLE_LTO
+endif
+
 ifneq ($(CONFIG_FRAME_WARN),0)
 KBUILD_CFLAGS += $(call cc-option,-Wframe-larger-than=${CONFIG_FRAME_WARN})
 endif
@@ -709,6 +726,17 @@ endif
 ifneq ($(KCFLAGS),)
         $(call warn-assign,CFLAGS)
         KBUILD_CFLAGS += $(KCFLAGS)
+endif
+
+ifeq ($(CONFIG_LTO_GCC),y)
+# GCC 4.9 compiles every LTO partition with the code generation options of
+# the link command rather than those each object was compiled with.
+# LTO_GCC_CODEGEN is the kernel-wide -f, -m, -O, -g and -Wa, sequence: the
+# vmlinux prelink passes it, and scripts/Makefile.lib compiles an object
+# natively when its own sequence differs.
+LTO_GCC_CODEGEN := $(strip $(filter -f% -m% -O% -g% -Wa$(comma)%,\
+	$(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) $(KBUILD_CFLAGS_KERNEL) $(CFLAGS_KERNEL)))
+export LTO_GCC_CODEGEN
 endif
 
 # Use --build-id when available.
@@ -813,20 +841,22 @@ vmlinux-all  := $(vmlinux-init) $(vmlinux-main)
 vmlinux-lds  := arch/$(SRCARCH)/kernel/vmlinux.lds
 export KBUILD_VMLINUX_OBJS := $(vmlinux-all)
 
-ifeq ($(CONFIG_LTO_CLANG_THIN),y)
-# vmlinux.o is the one relocatable ThinLTO link of every vmlinux input, in
-# link order. modpost reads it, and kallsyms and the final vmlinux link use
-# its native code together with the kallsyms objects.
+ifeq ($(CONFIG_LTO),y)
+# vmlinux.o is the one relocatable LTO link of every vmlinux input, in link
+# order. modpost reads it, and kallsyms and the final vmlinux link use its
+# native code together with the kallsyms objects.
 vmlinux-native-inputs = $(vmlinux-init) --start-group \
 	$(foreach input,$(vmlinux-main),$(if $(filter %.a,$(input)),\
 	--no-whole-archive $(input) --whole-archive,$(input))) --end-group
 vmlinux-symversion-inputs = $(foreach input,$(vmlinux-all),$(input).symversions)
-thinlto-prelink-sources := $(srctree)/scripts/generate-lto-initcall-order.pl \
+lto-prelink-sources := $(srctree)/scripts/generate-lto-initcall-order.pl \
 	$(srctree)/scripts/validate-lto-prelink.pl
 quiet_cmd_vmlinux__ = LD      $@
       cmd_vmlinux__ = $(LD) $(LDFLAGS) $(LDFLAGS_vmlinux) -o $@ \
 	-T $(vmlinux-lds) vmlinux.o \
 	$(filter-out $(vmlinux-lds) $(vmlinux-init) $(vmlinux-main) vmlinux.o FORCE,$^)
+
+ifeq ($(CONFIG_LTO_CLANG_THIN),y)
 # A ThinLTO cache hit replays a module's native object without running its
 # codegen, so the diagnostics codegen raises (inline asm among them) never
 # print and --fatal-warnings has nothing to fail on. The cache is opt-in:
@@ -835,6 +865,31 @@ quiet_cmd_vmlinux__ = LD      $@
 # there and the directory once it is empty.
 thinlto-cache-flags := $(if $(KBUILD_THINLTO_CACHE),--thinlto-cache-dir=$(KBUILD_THINLTO_CACHE) \
 	--thinlto-cache-policy=cache_size_bytes=8589934592:cache_size_files=10000)
+lto-prelink-ld = $(LD) $(LDFLAGS) -r --fatal-warnings --thinlto-jobs=2 \
+	--mllvm=-import-instr-limit=5 $(thinlto-cache-flags)
+lto-nm-flags := --quiet
+lto-initcall-order := ascending
+endif
+
+ifeq ($(CONFIG_LTO_GCC),y)
+# gcc drives the prelink: the linker plugin hands the GIMPLE of every fat
+# object to lto1 and links the native partitions with the assembler and
+# natively compiled objects, and scripts/gcc-ld passes each ld option as
+# -Wl. The kernel-wide code generation and warning options reach lto1, so
+# its diagnostics follow KCFLAGS, and LTRANS partitions take their job
+# slots from make's jobserver. lto-wrapper writes the partition objects and
+# assembler files to TMPDIR, which defaults to the object tree, so a tmpfs
+# /tmp never holds the whole kernel's LTRANS output.
+lto-prelink-ld = TMPDIR="$${TMPDIR:-$(objtree)}" $(CONFIG_SHELL) $(srctree)/scripts/gcc-ld \
+	$(filter-out -ffat-lto-objects,$(LTO_GCC_CODEGEN)) \
+	$(filter -W%,$(KBUILD_CFLAGS)) -flto=jobserver -fuse-linker-plugin \
+	$(LDFLAGS) -r --fatal-warnings
+lto-nm-flags :=
+# GCC emits a translation unit's top-level variables in reverse definition
+# order, so a native GCC kernel runs one object's same-level initcalls in
+# descending __COUNTER__ order; the prelink keeps that order.
+lto-initcall-order := descending
+endif
 
 # The prelink applies every genksyms CRC script and the generated initcall
 # order script. genksyms writes no CRC for the per-CPU array export
@@ -850,13 +905,13 @@ quiet_cmd_vmlinux-modpost = LTO     $@
 		exit 1; \
 	fi; \
 	echo "__crc_softirq_work_list = 0 ;" >> vmlinux.symversions; \
-	NM=$(NM) $(PERL) $(srctree)/scripts/generate-lto-initcall-order.pl \
+	NM="$(NM)" NM_FLAGS="$(lto-nm-flags)" INITCALL_COUNTER_ORDER=$(lto-initcall-order) \
+		$(PERL) $(srctree)/scripts/generate-lto-initcall-order.pl \
 		$(vmlinux-all) > vmlinux.initcalls.lds; \
-	$(LD) $(LDFLAGS) -r --fatal-warnings --thinlto-jobs=2 \
-		--mllvm=-import-instr-limit=5 $(thinlto-cache-flags) \
+	$(lto-prelink-ld) \
 		-T vmlinux.symversions -T vmlinux.initcalls.lds \
 		-o $@ --whole-archive $(vmlinux-native-inputs) --no-whole-archive; \
-	$(PERL) $(srctree)/scripts/validate-lto-prelink.pl $(READELF) $@ || \
+	$(PERL) $(srctree)/scripts/validate-lto-prelink.pl "$(READELF)" $@ || \
 		{ rm -f $@; exit 1; }
 endif
 
@@ -891,7 +946,7 @@ quiet_cmd_sysmap = SYSMAP
 # First command is ':' to allow us to use + in front of the rule
 define rule_vmlinux__
 	:
-	$(if $(CONFIG_LTO_CLANG_THIN),,$(if $(CONFIG_KALLSYMS),,+$(call cmd,vmlinux_version)))
+	$(if $(CONFIG_LTO),,$(if $(CONFIG_KALLSYMS),,+$(call cmd,vmlinux_version)))
 
 	$(call cmd,vmlinux__)
 	$(Q)echo 'cmd_$@ := $(call make-cmd,vmlinux__)' > $(@D)/.$(@F).cmd
@@ -952,7 +1007,7 @@ endef
 cmd_ksym_ld = $(cmd_vmlinux__)
 define rule_ksym_ld
 	: 
-	$(if $(CONFIG_LTO_CLANG_THIN),,+$(call cmd,vmlinux_version))
+	$(if $(CONFIG_LTO),,+$(call cmd,vmlinux_version))
 	$(call cmd,vmlinux__)
 	$(Q)echo 'cmd_$@ := $(call make-cmd,vmlinux__)' > $(@D)/.$(@F).cmd
 endef
@@ -996,9 +1051,9 @@ endif # ifdef CONFIG_KALLSYMS
 
 # Do modpost on a prelinked vmlinux. The finally linked vmlinux has
 # relevant sections renamed as per the linker script.
-# With CONFIG_LTO_CLANG_THIN, init/version.o enters the prelink, so the
+# With CONFIG_LTO, init/version.o enters the prelink, so the
 # version count advances before the prelink instead of before the final link.
-ifneq ($(CONFIG_LTO_CLANG_THIN),y)
+ifneq ($(CONFIG_LTO),y)
 quiet_cmd_vmlinux-modpost = LD      $@
       cmd_vmlinux-modpost = $(LD) $(LDFLAGS) -r -o $@                          \
 	 $(vmlinux-init) --start-group $(vmlinux-main) --end-group             \
@@ -1006,7 +1061,7 @@ quiet_cmd_vmlinux-modpost = LD      $@
 endif
 define rule_vmlinux-modpost
 	:
-	$(if $(CONFIG_LTO_CLANG_THIN),+$(call cmd,vmlinux_version))
+	$(if $(CONFIG_LTO),+$(call cmd,vmlinux_version))
 	+$(call cmd,vmlinux-modpost)
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modpost $@
 	$(Q)echo 'cmd_$@ := $(call make-cmd,vmlinux-modpost)' > $(dot-target).cmd
@@ -1032,9 +1087,9 @@ ifdef CONFIG_KALLSYMS
 .tmp_vmlinux1: vmlinux.o
 endif
 
-modpost-init := $(if $(CONFIG_LTO_CLANG_THIN),$(vmlinux-init),$(filter-out init/built-in.o, $(vmlinux-init)))
+modpost-init := $(if $(CONFIG_LTO),$(vmlinux-init),$(filter-out init/built-in.o, $(vmlinux-init)))
 vmlinux.o: $(modpost-init) $(vmlinux-main) \
-	$(if $(CONFIG_LTO_CLANG_THIN),$(thinlto-prelink-sources)) FORCE
+	$(if $(CONFIG_LTO),$(lto-prelink-sources)) FORCE
 	$(call if_changed_rule,vmlinux-modpost)
 
 # The actual objects are generated when descending, 

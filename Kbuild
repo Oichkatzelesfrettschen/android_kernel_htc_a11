@@ -5,7 +5,7 @@
 # 2) Generate asm-offsets.h (may need bounds.h)
 # 3) Check for missing system calls
 
-# bounds.h and asm-offsets.h are parsed from assembler text, not LLVM IR.
+# bounds.h and asm-offsets.h are parsed from assembler text, not LTO IR.
 KBUILD_CFLAGS += $(DISABLE_LTO)
 
 #####

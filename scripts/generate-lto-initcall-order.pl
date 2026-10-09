@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 # SPDX-License-Identifier: GPL-2.0
-# Emit the linker script that places ThinLTO initcall sections in link order.
+# Emit the linker script that places LTO initcall sections in link order.
 #
 # Each input is a vmlinux object or archive in link order. Within one
 # archive member, initcalls keep their __COUNTER__ order; the output names
@@ -11,8 +11,20 @@
 use strict;
 use warnings;
 
-my $nm = $ENV{NM} or die "NM must name the selected LLVM symbol reader\n";
+# NM may carry a launcher word such as ccache. NM_FLAGS defaults to the
+# llvm-nm option that silences members without symbols; binutils nm takes
+# an empty NM_FLAGS.
+my @nm = split ' ', ($ENV{NM} // '');
+@nm or die "NM must name the selected symbol reader\n";
+my @nm_flags = defined $ENV{NM_FLAGS} ? split(' ', $ENV{NM_FLAGS}) : ('--quiet');
 @ARGV or die "at least one ordered vmlinux input is required\n";
+
+# INITCALL_COUNTER_ORDER names the order of one object's same-level
+# initcalls: ascending __COUNTER__ is source order, which a native Clang
+# object keeps; descending is the reverse, which a native GCC object emits.
+my $counter_order = $ENV{INITCALL_COUNTER_ORDER} // 'ascending';
+$counter_order eq 'ascending' || $counter_order eq 'descending'
+	or die "INITCALL_COUNTER_ORDER must be ascending or descending\n";
 
 my @levels = qw(early 0 0s 1 1s 2 2s 3 3s 4 4s 5 5s rootfs 6 6s 7 7s con sec);
 my %valid_level = map { $_ => 1 } @levels;
@@ -23,7 +35,9 @@ my $ordinary_count = 0;
 sub append_member {
 	my ($file, $member, $calls) = @_;
 	my %seen_counters;
-	for my $call (sort { $a->{counter} <=> $b->{counter} } @$calls) {
+	my @ordered = sort { $a->{counter} <=> $b->{counter} } @$calls;
+	@ordered = reverse @ordered if $counter_order eq 'descending';
+	for my $call (@ordered) {
 		my $symbol = $call->{symbol};
 		my $level = $call->{level};
 		my $counter = $call->{counter};
@@ -40,8 +54,8 @@ sub append_member {
 
 for my $file (@ARGV) {
 	-f $file or die "missing initcall input $file\n";
-	open my $input, '-|', $nm, '--quiet', '--defined-only', $file
-		or die "cannot execute $nm for $file: $!\n";
+	open my $input, '-|', @nm, @nm_flags, '--defined-only', $file
+		or die "cannot execute @nm for $file: $!\n";
 	my $member = $file;
 	my @calls;
 	while (my $line = <$input>) {
@@ -65,7 +79,7 @@ for my $file (@ARGV) {
 		push @calls, { symbol => $symbol, level => $level,
 			counter => int($counter) };
 	}
-	close $input or die "$nm failed for $file (status $?)\n";
+	close $input or die "@nm failed for $file (status $?)\n";
 	append_member($file, $member, \@calls);
 }
 
@@ -78,13 +92,17 @@ for my $required (split /,/, ($ENV{INITCALL_REQUIRED_CLASSES} || 'ordinary')) {
 		unless $sections{$required} && @{ $sections{$required} };
 }
 
+# Each output section starts at address 0, the address every section of a
+# relocatable object carries. Without it gold numbers the sections one after
+# another and writes the local initcall symbols of later sections relative
+# to that address, so they read as negative offsets in vmlinux.o.
 print "SECTIONS {\n";
 for my $level (@levels) {
 	next unless $sections{$level};
 	my $output = $level eq 'con' ? '.con_initcall.init' :
 		$level eq 'sec' ? '.security_initcall.init' :
 		".initcall${level}.init";
-	print "  $output : {\n";
+	print "  $output 0 : {\n";
 	for my $input (@{ $sections{$level} }) {
 		print "    KEEP(*($input))\n";
 	}

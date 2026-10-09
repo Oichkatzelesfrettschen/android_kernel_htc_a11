@@ -147,5 +147,11 @@ v_VOID_t vos_sleep_us( v_U32_t usInterval )
   --------------------------------------------------------------------------*/
 v_VOID_t vos_busy_wait( v_U32_t usInterval )
 {
-    udelay(usInterval);
+    /*
+     * udelay() covers at most MAX_UDELAY_MS milliseconds, and a constant
+     * above that resolves to the undefined __bad_udelay(); whole
+     * milliseconds go through mdelay().
+     */
+    mdelay(usInterval / 1000);
+    udelay(usInterval % 1000);
 }

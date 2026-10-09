@@ -15,3 +15,12 @@ config NO_ERROR_ON_MISMATCH
 	default n
 	help
 	   Fix compile for some targets
+
+config LTO
+	bool
+	help
+	  Selected by each link time optimization option. Kbuild keys the
+	  thin-archive built-in objects, the export CRC scripts kept beside
+	  each object, the per-initcall sections and the relocatable vmlinux
+	  prelink on this symbol; the compiler-specific option names the
+	  compile flags and the linker that run the prelink.

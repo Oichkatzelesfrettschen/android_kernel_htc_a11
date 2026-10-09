@@ -76,6 +76,11 @@ obj-$(CONFIG_HW_PERF_EVENTS)	+= perf_event.o
 # which the integrated assembler reports as -Winline-asm. The file-local
 # pragma that silences it applies only when this object compiles natively.
 CFLAGS_perf_event.o		+= $(DISABLE_LTO)
+# kernel_thread_helper and kernel_thread_exit are local symbols that
+# top-level asm in process.c defines for kernel_thread(). GCC LTO emits all
+# top-level asm in the first partition, apart from kernel_thread(), so the
+# object compiles natively.
+CFLAGS_process.o		+= $(DISABLE_LTO)
 AFLAGS_iwmmxt.o			:= -Wa,-mcpu=iwmmxt
 obj-$(CONFIG_ARM_CPU_TOPOLOGY)  += topology.o
 obj-$(CONFIG_ARM_USE_USER_ACCESSIBLE_TIMERS)	+= user_accessible_timer.o
