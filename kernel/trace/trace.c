@@ -4607,6 +4607,7 @@ __init static int tracer_alloc_buffers(void)
 		printk(KERN_ERR "tracer: failed to allocate max ring buffer!\n");
 		WARN_ON(1);
 		ring_buffer_free(global_trace.buffer);
+		global_trace.buffer = NULL;
 		goto out_free_cpumask;
 	}
 	max_tr.entries = 1;
