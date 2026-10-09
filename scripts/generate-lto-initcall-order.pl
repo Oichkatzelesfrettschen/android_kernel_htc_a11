@@ -83,13 +83,17 @@ for my $required (split /,/, ($ENV{INITCALL_REQUIRED_CLASSES} || 'ordinary')) {
 		unless $sections{$required} && @{ $sections{$required} };
 }
 
+# Each output section starts at address 0, the address every section of a
+# relocatable object carries. Without it gold numbers the sections one after
+# another and writes the local initcall symbols of later sections relative
+# to that address, so they read as negative offsets in vmlinux.o.
 print "SECTIONS {\n";
 for my $level (@levels) {
 	next unless $sections{$level};
 	my $output = $level eq 'con' ? '.con_initcall.init' :
 		$level eq 'sec' ? '.security_initcall.init' :
 		".initcall${level}.init";
-	print "  $output : {\n";
+	print "  $output 0 : {\n";
 	for my $input (@{ $sections{$level} }) {
 		print "    KEEP(*($input))\n";
 	}
