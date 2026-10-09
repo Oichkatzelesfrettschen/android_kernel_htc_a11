@@ -14,10 +14,13 @@ use warnings;
 
 @ARGV == 2 or die "usage: $0 READELF VMLINUX_OBJECT\n";
 my ($readelf, $object) = @ARGV;
+# READELF may carry a launcher word such as ccache.
+my @readelf = split ' ', $readelf;
+@readelf or die "READELF names no program\n";
 
 sub readelf_output {
 	my (@arguments) = @_;
-	open my $pipe, '-|', $readelf, @arguments, $object
+	open my $pipe, '-|', @readelf, @arguments, $object
 		or die "cannot run $readelf: $!\n";
 	local $/;
 	my $output = <$pipe>;
@@ -153,7 +156,7 @@ if (%unrecognized) {
 
 $initcall_count or die "$object: missing ordered initcall output\n";
 exists $by_name{'.symtab'} or die "$object: missing symbol table\n";
-open my $symbol_pipe, '-|', $readelf, '-sW', $object
+open my $symbol_pipe, '-|', @readelf, '-sW', $object
 	or die "cannot read symbols in $object: $!\n";
 my @unresolved_crc;
 while (my $line = <$symbol_pipe>) {

@@ -11,7 +11,12 @@
 use strict;
 use warnings;
 
-my $nm = $ENV{NM} or die "NM must name the selected LLVM symbol reader\n";
+# NM may carry a launcher word such as ccache. NM_FLAGS defaults to the
+# llvm-nm option that silences members without symbols; binutils nm takes
+# an empty NM_FLAGS.
+my @nm = split ' ', ($ENV{NM} // '');
+@nm or die "NM must name the selected symbol reader\n";
+my @nm_flags = defined $ENV{NM_FLAGS} ? split(' ', $ENV{NM_FLAGS}) : ('--quiet');
 @ARGV or die "at least one ordered vmlinux input is required\n";
 
 my @levels = qw(early 0 0s 1 1s 2 2s 3 3s 4 4s 5 5s rootfs 6 6s 7 7s con sec);
@@ -40,8 +45,8 @@ sub append_member {
 
 for my $file (@ARGV) {
 	-f $file or die "missing initcall input $file\n";
-	open my $input, '-|', $nm, '--quiet', '--defined-only', $file
-		or die "cannot execute $nm for $file: $!\n";
+	open my $input, '-|', @nm, @nm_flags, '--defined-only', $file
+		or die "cannot execute @nm for $file: $!\n";
 	my $member = $file;
 	my @calls;
 	while (my $line = <$input>) {
@@ -65,7 +70,7 @@ for my $file (@ARGV) {
 		push @calls, { symbol => $symbol, level => $level,
 			counter => int($counter) };
 	}
-	close $input or die "$nm failed for $file (status $?)\n";
+	close $input or die "@nm failed for $file (status $?)\n";
 	append_member($file, $member, \@calls);
 }
 

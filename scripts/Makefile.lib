@@ -161,6 +161,18 @@ cpp_flags      = -Wp,-MD,$(depfile) $(NOSTDINC_FLAGS) $(LINUXINCLUDE)     \
 
 ld_flags       = $(LDFLAGS) $(ldflags-y)
 
+ifeq ($(CONFIG_LTO_GCC),y)
+# GCC 4.9 compiles each LTO partition with the kernel-wide LTO_GCC_CODEGEN
+# options of the link command. An object whose own -f, -m, -O, -g or -Wa,
+# sequence differs from that set in content or order compiles natively, so
+# its own options reach its code.
+lto-gcc-object-codegen = $(strip $(filter -f% -m% -O% -g% -Wa$(comma)%,\
+	$(__c_flags) $(modkern_cflags)))
+lto-gcc-codegen-delta = $(subst $(lto-gcc-object-codegen),,$(LTO_GCC_CODEGEN)) \
+	$(subst $(LTO_GCC_CODEGEN),,$(lto-gcc-object-codegen))
+c_flags += $(if $(strip $(lto-gcc-codegen-delta)),$(DISABLE_LTO))
+endif
+
 # Finds the multi-part object the current object will be linked into
 modname-multi = $(sort $(foreach m,$(multi-used),\
 		$(if $(filter $(subst $(obj)/,,$*.o), $($(m:.o=-objs)) $($(m:.o=-y))),$(m:.o=))))

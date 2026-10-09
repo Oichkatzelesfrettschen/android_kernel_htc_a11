@@ -612,6 +612,23 @@ KBUILD_CFLAGS += $(CC_FLAGS_LTO)
 export CC_FLAGS_LTO DISABLE_LTO
 endif
 
+ifeq ($(CONFIG_LTO_GCC),y)
+ifeq ($(LLVM),1)
+$(error CONFIG_LTO_GCC requires the GCC toolchain; CONFIG_LTO_CLANG_THIN serves LLVM=1)
+endif
+# A fat LTO object carries native code beside its GIMPLE, so binutils ar, nm
+# and objdump read its symbols without the linker plugin. With
+# -fno-toplevel-reorder the LTO partitioner emits variables and top-level asm
+# in input order, the order linker tables such as .init.setup inherit.
+# -fno-pic replaces the toolchain's default -fpic, under which every global
+# function stays interposable and the LTO link inlines nothing across
+# objects.
+CC_FLAGS_LTO := -flto -ffat-lto-objects -fno-toplevel-reorder
+DISABLE_LTO := -fno-lto
+KBUILD_CFLAGS += -fno-pic $(CC_FLAGS_LTO)
+export CC_FLAGS_LTO DISABLE_LTO
+endif
+
 ifneq ($(CONFIG_FRAME_WARN),0)
 KBUILD_CFLAGS += $(call cc-option,-Wframe-larger-than=${CONFIG_FRAME_WARN})
 endif
@@ -709,6 +726,17 @@ endif
 ifneq ($(KCFLAGS),)
         $(call warn-assign,CFLAGS)
         KBUILD_CFLAGS += $(KCFLAGS)
+endif
+
+ifeq ($(CONFIG_LTO_GCC),y)
+# GCC 4.9 compiles every LTO partition with the code generation options of
+# the link command rather than those each object was compiled with.
+# LTO_GCC_CODEGEN is the kernel-wide -f, -m, -O, -g and -Wa, sequence: the
+# vmlinux prelink passes it, and scripts/Makefile.lib compiles an object
+# natively when its own sequence differs.
+LTO_GCC_CODEGEN := $(strip $(filter -f% -m% -O% -g% -Wa$(comma)%,\
+	$(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) $(KBUILD_CFLAGS_KERNEL) $(CFLAGS_KERNEL)))
+export LTO_GCC_CODEGEN
 endif
 
 # Use --build-id when available.
@@ -839,6 +867,21 @@ thinlto-cache-flags := $(if $(KBUILD_THINLTO_CACHE),--thinlto-cache-dir=$(KBUILD
 	--thinlto-cache-policy=cache_size_bytes=8589934592:cache_size_files=10000)
 lto-prelink-ld = $(LD) $(LDFLAGS) -r --fatal-warnings --thinlto-jobs=2 \
 	--mllvm=-import-instr-limit=5 $(thinlto-cache-flags)
+lto-nm-flags := --quiet
+endif
+
+ifeq ($(CONFIG_LTO_GCC),y)
+# gcc drives the prelink: the linker plugin hands the GIMPLE of every fat
+# object to lto1 and links the native partitions with the assembler and
+# natively compiled objects, and scripts/gcc-ld passes each ld option as
+# -Wl. The kernel-wide code generation and warning options reach lto1, so
+# its diagnostics follow KCFLAGS, and LTRANS partitions take their job
+# slots from make's jobserver.
+lto-prelink-ld = $(CONFIG_SHELL) $(srctree)/scripts/gcc-ld \
+	$(filter-out -ffat-lto-objects,$(LTO_GCC_CODEGEN)) \
+	$(filter -W%,$(KBUILD_CFLAGS)) -flto=jobserver -fuse-linker-plugin \
+	$(LDFLAGS) -r --fatal-warnings
+lto-nm-flags :=
 endif
 
 # The prelink applies every genksyms CRC script and the generated initcall
@@ -855,12 +898,13 @@ quiet_cmd_vmlinux-modpost = LTO     $@
 		exit 1; \
 	fi; \
 	echo "__crc_softirq_work_list = 0 ;" >> vmlinux.symversions; \
-	NM=$(NM) $(PERL) $(srctree)/scripts/generate-lto-initcall-order.pl \
+	NM="$(NM)" NM_FLAGS="$(lto-nm-flags)" \
+		$(PERL) $(srctree)/scripts/generate-lto-initcall-order.pl \
 		$(vmlinux-all) > vmlinux.initcalls.lds; \
 	$(lto-prelink-ld) \
 		-T vmlinux.symversions -T vmlinux.initcalls.lds \
 		-o $@ --whole-archive $(vmlinux-native-inputs) --no-whole-archive; \
-	$(PERL) $(srctree)/scripts/validate-lto-prelink.pl $(READELF) $@ || \
+	$(PERL) $(srctree)/scripts/validate-lto-prelink.pl "$(READELF)" $@ || \
 		{ rm -f $@; exit 1; }
 endif
 
