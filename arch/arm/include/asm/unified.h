@@ -27,6 +27,15 @@
 #else
 #define ASM_RESTORE_SYNTAX	".syntax divided\n"
 #endif
+#ifdef CONFIG_LTO_GCC
+/*
+ * GCC 4.9 emits the top-level asm of every object into the first LTO
+ * partition alone, so inline asm in the other partitions cannot use a
+ * macro that top-level asm defines. Each use carries its own directives.
+ */
+#define ASM_UNIFIED(instruction, operands) \
+	".syntax unified\n" instruction " " operands "\n" ASM_RESTORE_SYNTAX
+#else
 #define ASM_UNIFIED(instruction, operands) \
 	"__arm_asm_unified " instruction ", " operands
 __asm__(
@@ -35,6 +44,7 @@ __asm__(
 "\\instruction \\operands\n"
 ASM_RESTORE_SYNTAX
 ".endm\n");
+#endif
 #endif
 
 #if defined(__ASSEMBLY__) && defined(CONFIG_ARM_ASM_UNIFIED)
@@ -70,6 +80,18 @@ ASM_RESTORE_SYNTAX
 #endif
 
 #endif	/* CONFIG_THUMB2_KERNEL */
+
+/*
+ * An IT instruction line in C inline asm. Divided-syntax ARM code knows IT
+ * only through the no-op macros that top-level asm defines below; under
+ * CONFIG_LTO_GCC those macros exist in the first LTO partition alone, so an
+ * ARM kernel drops the line, which assembles to nothing in ARM state.
+ */
+#ifdef CONFIG_LTO_GCC
+#define ASM_IT(line)	THUMB(line)
+#else
+#define ASM_IT(line)	line
+#endif
 
 #if !defined(CONFIG_ARM_ASM_UNIFIED) || \
     (!defined(__ASSEMBLY__) && !defined(CONFIG_THUMB2_KERNEL))
@@ -109,7 +131,7 @@ ASM_RESTORE_SYNTAX
 	.endm
 	.macro	iteee, cond
 	.endm
-#else	/* !__ASSEMBLY__ */
+#elif !defined(CONFIG_LTO_GCC)	/* !__ASSEMBLY__ */
 __asm__(
 "	.macro	it, cond\n"
 "	.endm\n"

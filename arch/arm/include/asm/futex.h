@@ -53,7 +53,7 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 	__asm__ __volatile__("@futex_atomic_cmpxchg_inatomic\n"
 	"1:	ldrex	%1, [%4]\n"
 	"	teq	%1, %2\n"
-	"	ite	eq	@ explicit IT needed for the 2b label\n"
+	ASM_IT("	ite	eq	@ explicit IT needed for the 2b label\n")
 	"2:	strexeq	%0, %3, [%4]\n"
 	"	movne	%0, #0\n"
 	"	teq	%0, #0\n"
@@ -97,7 +97,7 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 	__asm__ __volatile__("@futex_atomic_cmpxchg_inatomic\n"
 	"1:	" TUSER(ldr) "	%1, [%4]\n"
 	"	teq	%1, %2\n"
-	"	it	eq	@ explicit IT needed for the 2b label\n"
+	ASM_IT("	it	eq	@ explicit IT needed for the 2b label\n")
 	"2:	" TUSER(streq) "	%3, [%4]\n"
 	__futex_atomic_ex_table("%5")
 	: "+r" (ret), "=&r" (val)
