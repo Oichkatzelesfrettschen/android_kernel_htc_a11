@@ -898,8 +898,12 @@ static int exfat_find(struct inode *dir, struct qstr *qname,
 		return -ENOENT;
 
 	err = FsLookupFile(dir, (UINT8 *) qname->name, fid);
-	if (err)
+	if (err == FFS_NOTFOUND || err == FFS_INVALIDPATH)
 		return -ENOENT;
+	if (err == FFS_NAMETOOLONG)
+		return -ENAMETOOLONG;
+	if (err)
+		return -EIO;
 
 	return 0;
 }

@@ -447,6 +447,10 @@ extern "C" {
 #define ES_3_ENTRIES		3
 #define ES_ALL_ENTRIES	0
 
+/* find_dir_entry() result for a media or FAT-chain read failure; -1 is the
+ * root directory and -2 is name not found. */
+#define FIND_DIR_ENTRY_IOERR	(-3)
+
 	typedef struct {
 		UINT32	sector;
 		INT32	offset;

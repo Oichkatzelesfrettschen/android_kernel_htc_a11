@@ -337,6 +337,8 @@ INT32 ffsLookupFile(struct inode *inode, UINT8 *path, FILE_ID_T *fid)
 		return ret;
 
 	dentry = p_fs->fs_func->find_dir_entry(sb, &dir, &uni_name, num_entries, &dos_name, TYPE_ALL);
+	if (dentry == FIND_DIR_ENTRY_IOERR)
+		return FFS_MEDIAERR;
 	if (dentry < -1)
 		return FFS_NOTFOUND;
 
@@ -3670,7 +3672,7 @@ INT32 fat_find_dir_entry(struct super_block *sb, CHAIN_T *p_dir, UNI_NAME_T *p_u
 		for (i = 0; i < dentries_per_clu; i++, dentry++) {
 			ep = get_entry_in_dir(sb, &clu, i, NULL);
 			if (!ep)
-				return -2;
+				return FIND_DIR_ENTRY_IOERR;
 
 			entry_type = p_fs->fs_func->get_entry_type(ep);
 
@@ -3723,7 +3725,7 @@ INT32 fat_find_dir_entry(struct super_block *sb, CHAIN_T *p_dir, UNI_NAME_T *p_u
 			return -2;
 	}
 
-	return -2;
+	return p_fs->dev_ejected ? FIND_DIR_ENTRY_IOERR : -2;
 }
 
 INT32 exfat_find_dir_entry(struct super_block *sb, CHAIN_T *p_dir, UNI_NAME_T *p_uniname, INT32 num_entries, DOS_NAME_T *p_dosname, UINT32 type)
@@ -3765,7 +3767,7 @@ INT32 exfat_find_dir_entry(struct super_block *sb, CHAIN_T *p_dir, UNI_NAME_T *p
 		for (i = 0; i < dentries_per_clu; i++, dentry++) {
 			ep = get_entry_in_dir(sb, &clu, i, NULL);
 			if (!ep)
-				return -2;
+				return FIND_DIR_ENTRY_IOERR;
 
 			entry_type = p_fs->fs_func->get_entry_type(ep);
 
@@ -3849,11 +3851,11 @@ INT32 exfat_find_dir_entry(struct super_block *sb, CHAIN_T *p_dir, UNI_NAME_T *p
 				clu.dir = CLUSTER_32(~0);
 		} else {
 			if (FAT_read(sb, clu.dir, &(clu.dir)) != 0)
-				return -2;
+				return FIND_DIR_ENTRY_IOERR;
 		}
 	}
 
-	return -2;
+	return p_fs->dev_ejected ? FIND_DIR_ENTRY_IOERR : -2;
 }
 
 INT32 fat_count_ext_entries(struct super_block *sb, CHAIN_T *p_dir, INT32 entry, DENTRY_T *p_entry)
