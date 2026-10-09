@@ -868,6 +868,7 @@ thinlto-cache-flags := $(if $(KBUILD_THINLTO_CACHE),--thinlto-cache-dir=$(KBUILD
 lto-prelink-ld = $(LD) $(LDFLAGS) -r --fatal-warnings --thinlto-jobs=2 \
 	--mllvm=-import-instr-limit=5 $(thinlto-cache-flags)
 lto-nm-flags := --quiet
+lto-initcall-order := ascending
 endif
 
 ifeq ($(CONFIG_LTO_GCC),y)
@@ -884,6 +885,10 @@ lto-prelink-ld = TMPDIR="$${TMPDIR:-$(objtree)}" $(CONFIG_SHELL) $(srctree)/scri
 	$(filter -W%,$(KBUILD_CFLAGS)) -flto=jobserver -fuse-linker-plugin \
 	$(LDFLAGS) -r --fatal-warnings
 lto-nm-flags :=
+# GCC emits a translation unit's top-level variables in reverse definition
+# order, so a native GCC kernel runs one object's same-level initcalls in
+# descending __COUNTER__ order; the prelink keeps that order.
+lto-initcall-order := descending
 endif
 
 # The prelink applies every genksyms CRC script and the generated initcall
@@ -900,7 +905,7 @@ quiet_cmd_vmlinux-modpost = LTO     $@
 		exit 1; \
 	fi; \
 	echo "__crc_softirq_work_list = 0 ;" >> vmlinux.symversions; \
-	NM="$(NM)" NM_FLAGS="$(lto-nm-flags)" \
+	NM="$(NM)" NM_FLAGS="$(lto-nm-flags)" INITCALL_COUNTER_ORDER=$(lto-initcall-order) \
 		$(PERL) $(srctree)/scripts/generate-lto-initcall-order.pl \
 		$(vmlinux-all) > vmlinux.initcalls.lds; \
 	$(lto-prelink-ld) \

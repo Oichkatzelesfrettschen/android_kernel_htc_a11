@@ -19,6 +19,13 @@ my @nm = split ' ', ($ENV{NM} // '');
 my @nm_flags = defined $ENV{NM_FLAGS} ? split(' ', $ENV{NM_FLAGS}) : ('--quiet');
 @ARGV or die "at least one ordered vmlinux input is required\n";
 
+# INITCALL_COUNTER_ORDER names the order of one object's same-level
+# initcalls: ascending __COUNTER__ is source order, which a native Clang
+# object keeps; descending is the reverse, which a native GCC object emits.
+my $counter_order = $ENV{INITCALL_COUNTER_ORDER} // 'ascending';
+$counter_order eq 'ascending' || $counter_order eq 'descending'
+	or die "INITCALL_COUNTER_ORDER must be ascending or descending\n";
+
 my @levels = qw(early 0 0s 1 1s 2 2s 3 3s 4 4s 5 5s rootfs 6 6s 7 7s con sec);
 my %valid_level = map { $_ => 1 } @levels;
 my %sections;
@@ -28,7 +35,9 @@ my $ordinary_count = 0;
 sub append_member {
 	my ($file, $member, $calls) = @_;
 	my %seen_counters;
-	for my $call (sort { $a->{counter} <=> $b->{counter} } @$calls) {
+	my @ordered = sort { $a->{counter} <=> $b->{counter} } @$calls;
+	@ordered = reverse @ordered if $counter_order eq 'descending';
+	for my $call (@ordered) {
 		my $symbol = $call->{symbol};
 		my $level = $call->{level};
 		my $counter = $call->{counter};

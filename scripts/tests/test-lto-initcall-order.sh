@@ -44,6 +44,31 @@ grep -Fq '.con_initcall.init..__initcall__kmod_b_second__3_40_console_initcon' "
 grep -Fq '.security_initcall.init..__initcall__kmod_b_second__4_50_security_initsec' "$temporary_dir/order.lds"
 test "$(grep -Fc '.initcall6.init..__initcall__' "$temporary_dir/order.lds")" -eq 2
 
+cat > "$temporary_dir/same-level" <<'EOF'
+first.o:
+-------- d __initcall__kmod_a_first__2_20_later6
+-------- d __initcall__kmod_a_first__1_10_earlier6
+second.o:
+-------- d __initcall__kmod_b_second__1_10_next6
+EOF
+for order in ascending descending; do
+	NM="$temporary_dir/fake-nm" INITCALL_COUNTER_ORDER=$order \
+		"$perl" "$source_tree/scripts/generate-lto-initcall-order.pl" \
+		"$temporary_dir/same-level" > "$temporary_dir/$order.lds"
+	grep -o '__initcall__kmod_[a-z_]*__[0-9]_[0-9]*_[a-z]*6' "$temporary_dir/$order.lds" |
+		tr '\n' ' ' > "$temporary_dir/$order.seq"
+done
+test "$(cat "$temporary_dir/ascending.seq")" = \
+	'__initcall__kmod_a_first__1_10_earlier6 __initcall__kmod_a_first__2_20_later6 __initcall__kmod_b_second__1_10_next6 '
+test "$(cat "$temporary_dir/descending.seq")" = \
+	'__initcall__kmod_a_first__2_20_later6 __initcall__kmod_a_first__1_10_earlier6 __initcall__kmod_b_second__1_10_next6 '
+if NM="$temporary_dir/fake-nm" INITCALL_COUNTER_ORDER=sideways \
+	"$perl" "$source_tree/scripts/generate-lto-initcall-order.pl" \
+	"$temporary_dir/same-level" > "$temporary_dir/invalid.lds" 2> "$temporary_dir/error"; then
+	exit 1
+fi
+grep -Fq 'INITCALL_COUNTER_ORDER must be' "$temporary_dir/error"
+
 cat > "$temporary_dir/malformed" <<'EOF'
 -------- d __initcall_bad
 EOF
