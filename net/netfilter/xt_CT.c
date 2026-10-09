@@ -161,7 +161,7 @@ static void __xt_ct_tg_timeout_put(struct ctnl_timeout *timeout)
 }
 #endif
 
-static int xt_ct_tg_check_v1(const struct xt_tgchk_param *par)
+static int xt_ct_tg_check(const struct xt_tgchk_param *par)
 {
 	struct xt_ct_target_info_v1 *info = par->targinfo;
 	struct nf_conntrack_tuple t;
@@ -172,8 +172,6 @@ static int xt_ct_tg_check_v1(const struct xt_tgchk_param *par)
 #ifdef CONFIG_NF_CONNTRACK_TIMEOUT
 	struct ctnl_timeout *timeout;
 #endif
-	if (info->flags & ~XT_CT_NOTRACK)
-		return -EINVAL;
 
 	if (info->flags & XT_CT_NOTRACK) {
 		ct = nf_ct_untracked_get();
@@ -307,6 +305,26 @@ err1:
 	return ret;
 }
 
+static int xt_ct_tg_check_v1(const struct xt_tgchk_param *par)
+{
+	struct xt_ct_target_info_v1 *info = par->targinfo;
+
+	if (info->flags & ~XT_CT_NOTRACK)
+		return -EINVAL;
+
+	return xt_ct_tg_check(par);
+}
+
+static int xt_ct_tg_check_v2(const struct xt_tgchk_param *par)
+{
+	struct xt_ct_target_info_v1 *info = par->targinfo;
+
+	if (info->flags & ~XT_CT_MASK)
+		return -EINVAL;
+
+	return xt_ct_tg_check(par);
+}
+
 static void xt_ct_tg_destroy_v0(const struct xt_tgdtor_param *par)
 {
 	struct xt_ct_target_info *info = par->targinfo;
@@ -371,6 +389,17 @@ static struct xt_target xt_ct_tg_reg[] __read_mostly = {
 		.revision	= 1,
 		.targetsize	= sizeof(struct xt_ct_target_info_v1),
 		.checkentry	= xt_ct_tg_check_v1,
+		.destroy	= xt_ct_tg_destroy_v1,
+		.target		= xt_ct_target_v1,
+		.table		= "raw",
+		.me		= THIS_MODULE,
+	},
+	{
+		.name		= "CT",
+		.family		= NFPROTO_UNSPEC,
+		.revision	= 2,
+		.targetsize	= sizeof(struct xt_ct_target_info_v1),
+		.checkentry	= xt_ct_tg_check_v2,
 		.destroy	= xt_ct_tg_destroy_v1,
 		.target		= xt_ct_target_v1,
 		.table		= "raw",
