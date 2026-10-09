@@ -178,12 +178,11 @@ config HUGETLB_PAGE
 	def_bool HUGETLBFS
 
 config TRACEFS
-	bool "Trace file system"
-	depends on TRACING
-	default y
+	def_bool TRACING
 	help
 	  The trace file system provides a dedicated mount for the kernel tracing
-	  interface. Enable this option to expose tracing controls outside debugfs.
+	  interface. kernel/trace creates every tracing control through tracefs,
+	  so TRACING selects it.
 
 source "fs/configfs/Kconfig"
 
