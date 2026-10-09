@@ -876,8 +876,10 @@ ifeq ($(CONFIG_LTO_GCC),y)
 # natively compiled objects, and scripts/gcc-ld passes each ld option as
 # -Wl. The kernel-wide code generation and warning options reach lto1, so
 # its diagnostics follow KCFLAGS, and LTRANS partitions take their job
-# slots from make's jobserver.
-lto-prelink-ld = $(CONFIG_SHELL) $(srctree)/scripts/gcc-ld \
+# slots from make's jobserver. lto-wrapper writes the partition objects and
+# assembler files to TMPDIR, which defaults to the object tree, so a tmpfs
+# /tmp never holds the whole kernel's LTRANS output.
+lto-prelink-ld = TMPDIR="$${TMPDIR:-$(objtree)}" $(CONFIG_SHELL) $(srctree)/scripts/gcc-ld \
 	$(filter-out -ffat-lto-objects,$(LTO_GCC_CODEGEN)) \
 	$(filter -W%,$(KBUILD_CFLAGS)) -flto=jobserver -fuse-linker-plugin \
 	$(LDFLAGS) -r --fatal-warnings
