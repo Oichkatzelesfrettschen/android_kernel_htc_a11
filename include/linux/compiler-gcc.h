@@ -97,7 +97,11 @@
 #define __gcc_header(x) #x
 #define _gcc_header(x) __gcc_header(linux/compiler-gcc##x.h)
 #define gcc_header(x) _gcc_header(x)
-#include gcc_header(__GNUC__)
+#if __GNUC__ >= 5
+# include <linux/compiler-gcc5.h>
+#else
+# include gcc_header(__GNUC__)
+#endif
 
 #if !defined(__noclone)
 #define __noclone	/* not needed */
@@ -110,6 +114,13 @@
 #ifdef __clang__
 /* Self-initialization reads an indeterminate value under Clang. */
 #define uninitialized_var(x) x = { 0 }
+#elif __GNUC__ >= 16
+/* An empty asm defines the value, so no self-initialization is diagnosed. */
+#define uninitialized_var(x) x = ({ \
+	typeof(x) __uninitialized_value; \
+	__asm__("" : "=g" (__uninitialized_value)); \
+	__uninitialized_value; \
+})
 #else
 #define uninitialized_var(x) x = x
 #endif
