@@ -878,7 +878,7 @@ char *get_task_comm(char *buf, struct task_struct *tsk)
 {
 	
 	task_lock(tsk);
-	strncpy(buf, tsk->comm, sizeof(tsk->comm));
+	strncpy(buf, tsk->comm, TASK_COMM_LEN);
 	task_unlock(tsk);
 	return buf;
 }

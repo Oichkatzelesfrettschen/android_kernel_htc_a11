@@ -400,6 +400,10 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -marm -mfpu=neon-vfpv4
 ifeq ($(LLVM),1)
 KBUILD_CFLAGS	+= -std=gnu89 -ffreestanding
+else
+# GCC 5 and newer default to a later C dialect (GCC 15 to C23), where bool,
+# true and false are keywords; the tree is GNU89 C with gnu89 inline semantics.
+KBUILD_CFLAGS	+= $(call cc-option,-std=gnu89)
 endif
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
@@ -632,6 +636,13 @@ else
 ifndef CONFIG_FUNCTION_TRACER
 KBUILD_CFLAGS	+= -fomit-frame-pointer
 endif
+endif
+
+# The kernel links at a fixed address and expects absolute code and data, but
+# Clang defaults to PIE for arm-linux-gnueabi and the Android GCC 4.9 to -fpic.
+ifdef CONFIG_ARM_KERNEL_NO_PIE
+KBUILD_CFLAGS	+= $(call cc-option, -fno-PIE)
+KBUILD_AFLAGS	+= $(call cc-option, -fno-PIE)
 endif
 
 ifdef CONFIG_DEBUG_INFO

@@ -228,6 +228,16 @@ config VECTORS_BASE
 	  The base address of exception vectors.  This must be two pages
 	  in size.
 
+config ARM_KERNEL_NO_PIE
+	bool "Compile the kernel with -fno-PIE"
+	default n
+	help
+	  Pass -fno-PIE to the C and assembler compiles. The kernel image links
+	  at a fixed address, so position-independent code and the GOT-style
+	  .data.rel.ro sections that Clang and the Android GCC 4.9 emit by
+	  default are overhead. Leave this disabled to keep the compiler's
+	  default code generation.
+
 config ARM_PATCH_PHYS_VIRT
 	bool "Patch physical to virtual translations at runtime" if EMBEDDED
 	default y
