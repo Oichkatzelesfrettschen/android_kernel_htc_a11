@@ -3151,6 +3151,9 @@ struct asm_wmastdv8_enc_cfg {
 
 #define ASM_MEDIA_FMT_AMR_WB_PLUS_V2               0x00010DA9
 
+/* MPEG-1/2 Audio Layer II decoder media format. */
+#define ASM_MEDIA_FMT_MP2                          0x00010DE9
+
 struct asm_amrwbplus_fmt_blk_v2 {
 	struct apr_hdr hdr;
 	struct asm_data_cmd_media_fmt_update_v2 fmtblk;
