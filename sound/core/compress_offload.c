@@ -366,7 +366,13 @@ static unsigned int snd_compr_poll(struct file *f, poll_table *wait)
 	case SNDRV_PCM_STATE_RUNNING:
 	case SNDRV_PCM_STATE_PREPARED:
 	case SNDRV_PCM_STATE_PAUSED:
-		if (avail >= stream->runtime->fragment_size && (avail % stream->runtime->fragment_size == 0))
+		/*
+		 * The stream is ready once one fragment of the ring is free.
+		 * Writers queue any byte count while the DSP returns whole
+		 * fragments, so after a short write avail stays off a fragment
+		 * multiple; readiness depends on the free size alone.
+		 */
+		if (avail >= stream->runtime->fragment_size)
 			retval = snd_compr_get_poll(stream);
 		break;
 	default:
