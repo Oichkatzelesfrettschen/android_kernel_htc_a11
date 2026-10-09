@@ -952,10 +952,18 @@ static struct dentry *exfat_lookup(struct inode *dir, struct dentry *dentry,
 	if (S_ISLNK(i_mode)) {
 		EXFAT_I(inode)->target = MALLOC(i_size_read(inode)+1);
 		if (!EXFAT_I(inode)->target) {
+			iput(inode);
 			err = -ENOMEM;
 			goto error;
 		}
-		FsReadFile(dir, &fid, EXFAT_I(inode)->target, i_size_read(inode), &ret);
+		ret = 0;
+		if (FsReadFile(dir, &fid, EXFAT_I(inode)->target,
+			       i_size_read(inode), &ret) ||
+		    ret != i_size_read(inode)) {
+			iput(inode);
+			err = -EIO;
+			goto error;
+		}
 		*(EXFAT_I(inode)->target + i_size_read(inode)) = '\0';
 	}
 
