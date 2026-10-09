@@ -3295,26 +3295,20 @@ tracing_entries_write(struct file *filp, const char __user *ubuf,
 }
 
 #ifdef CONFIG_HTC_DEBUG_REPORT_MEMINFO
+/*
+ * Pages that back the global ring buffer: per-CPU data pages plus the reader
+ * page of every CPU buffer, as sized by ring_buffer_alloc() and
+ * ring_buffer_resize().
+ */
 unsigned long
 ftrace_total_pages(void)
 {
-	struct trace_array *tr = &global_trace;
-	int cpu;
-	unsigned long size = 0, expanded_size = 0, total;
+	struct ring_buffer *buffer = global_trace.buffer;
 
-	mutex_lock(&trace_types_lock);
-	for_each_tracing_cpu(cpu) {
-		size += tr->entries >> 10;
-		if (!ring_buffer_expanded)
-			expanded_size += trace_buf_size;
-	}
-	if (ring_buffer_expanded)
-		total = size;
-	else
-		total = size + expanded_size;
+	if (!buffer)
+		return 0;
 
-	mutex_unlock(&trace_types_lock);
-	return total >> (PAGE_SHIFT - 10);
+	return ring_buffer_backing_pages(buffer);
 }
 #endif
 

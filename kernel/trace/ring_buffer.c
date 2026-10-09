@@ -3594,6 +3594,30 @@ unsigned long ring_buffer_size(struct ring_buffer *buffer)
 }
 EXPORT_SYMBOL_GPL(ring_buffer_size);
 
+/**
+ * ring_buffer_backing_pages - pages allocated behind the per-cpu buffers
+ * @buffer: The ring buffer.
+ *
+ * Every per-cpu buffer owns buffer->pages data pages and one reader page
+ * (rb_allocate_cpu_buffer()). buffer->mutex orders the read against
+ * ring_buffer_resize(), and get_online_cpus() against the CPU_UP_PREPARE
+ * allocation in rb_cpu_notify().
+ */
+unsigned long ring_buffer_backing_pages(struct ring_buffer *buffer)
+{
+	unsigned long pages;
+
+	mutex_lock(&buffer->mutex);
+	get_online_cpus();
+	pages = (unsigned long)cpumask_weight(buffer->cpumask) *
+		(buffer->pages + 1);
+	put_online_cpus();
+	mutex_unlock(&buffer->mutex);
+
+	return pages;
+}
+EXPORT_SYMBOL_GPL(ring_buffer_backing_pages);
+
 static void
 rb_reset_cpu(struct ring_buffer_per_cpu *cpu_buffer)
 {
