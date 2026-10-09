@@ -573,10 +573,12 @@ static int s2w_set_switch(int val)
 static ssize_t s2w_sweep2wake_dump(struct kobject *kobj,
 		struct kobj_attribute *attr, const char *buf, size_t count)
 {
-	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n')
-		return s2w_set_switch(buf[0] - '0') ? : count;
+	unsigned int val;
 
-	return count;
+	if (kstrtouint(buf, 10, &val) || val > 1)
+		return -EINVAL;
+
+	return s2w_set_switch(val) ? : count;
 }
 
 static struct kobj_attribute dev_attr_sweep2wake =
@@ -595,9 +597,13 @@ static ssize_t s2w_s2w_s2sonly_show(struct kobject *kobj,
 static ssize_t s2w_s2w_s2sonly_dump(struct kobject *kobj,
 		struct kobj_attribute *attr, const char *buf, size_t count)
 {
-	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n' &&
-	    s2w_s2sonly != buf[0] - '0') {
-		s2w_s2sonly = buf[0] - '0';
+	unsigned int val;
+
+	if (kstrtouint(buf, 10, &val) || val > 1)
+		return -EINVAL;
+
+	if (s2w_s2sonly != val) {
+		s2w_s2sonly = val;
 		wake_gesture_changed();
 	}
 
