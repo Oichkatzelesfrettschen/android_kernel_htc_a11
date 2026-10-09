@@ -187,7 +187,7 @@ static time_t accum_days_in_year[] = {
 	0,   0, 31, 59, 90,120,151,181,212,243,273,304,334, 0, 0, 0,
 };
 
-static void _exfat_truncate(struct inode *inode, loff_t old_size);
+static int _exfat_truncate(struct inode *inode, loff_t old_size);
 
 void exfat_time_fat2unix(struct exfat_sb_info *sbi, struct timespec *ts,
 						 DATE_TIME_T *tp)
@@ -1478,12 +1478,18 @@ static int exfat_setattr(struct dentry *dentry, struct iattr *attr)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,00)
                 down_write(&EXFAT_I(inode)->truncate_lock);
 		truncate_setsize(inode, attr->ia_size);
-		_exfat_truncate(inode, old_size);
+		error = _exfat_truncate(inode, old_size);
+		if (error)
+			i_size_write(inode, EXFAT_I(inode)->fid.size);
 		up_write(&EXFAT_I(inode)->truncate_lock);
 #else
 		truncate_setsize(inode, attr->ia_size);
-		_exfat_truncate(inode, old_size);
+		error = _exfat_truncate(inode, old_size);
+		if (error)
+			i_size_write(inode, EXFAT_I(inode)->fid.size);
 #endif
+		if (error)
+			return error;
 	}
 	setattr_copy(inode, attr);
 	mark_inode_dirty(inode);
@@ -1577,12 +1583,12 @@ const struct file_operations exfat_file_operations = {
 	.splice_read = generic_file_splice_read,
 };
 
-static void _exfat_truncate(struct inode *inode, loff_t old_size)
+static int _exfat_truncate(struct inode *inode, loff_t old_size)
 {
 	struct super_block *sb = inode->i_sb;
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
 	FS_INFO_T *p_fs = &(sbi->fs_info);
-	int err;
+	int err = 0;
 
 	__lock_super(sb);
 
@@ -1592,7 +1598,10 @@ static void _exfat_truncate(struct inode *inode, loff_t old_size)
 	if (EXFAT_I(inode)->fid.start_clu == 0) goto out;
 
 	err = FsTruncateFile(inode, old_size, i_size_read(inode));
-	if (err) goto out;
+	if (err) {
+		err = -EIO;
+		goto out;
+	}
 
 	inode->i_ctime = inode->i_mtime = CURRENT_TIME_SEC;
 	if (IS_DIRSYNC(inode))
@@ -1604,6 +1613,7 @@ static void _exfat_truncate(struct inode *inode, loff_t old_size)
 		   & ~((loff_t)p_fs->cluster_size - 1)) >> inode->i_blkbits;
 out:
 	__unlock_super(sb);
+	return err;
 }
 
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,36)
