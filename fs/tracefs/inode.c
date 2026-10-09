@@ -68,6 +68,8 @@ struct tracefs_mount_opts {
 	uid_t uid;
 	gid_t gid;
 	umode_t mode;
+	/* 1 << Opt_* for each option the mount data supplied */
+	unsigned int opts;
 };
 
 enum {
@@ -96,6 +98,7 @@ static int tracefs_parse_options(char *data, struct tracefs_mount_opts *opts)
 	char *p;
 
 	opts->mode = TRACEFS_DEFAULT_MODE;
+	opts->opts = 0;
 
 	while ((p = strsep(&data, ",")) != NULL) {
 		if (!*p)
@@ -122,41 +125,118 @@ static int tracefs_parse_options(char *data, struct tracefs_mount_opts *opts)
 		 * We might like to report bad mount options here;
 		 * but traditionally tracefs has ignored all mount options
 		 */
+		default:
+			continue;
 		}
+		opts->opts |= 1U << token;
 	}
 
 	return 0;
 }
 
-static int tracefs_apply_options(struct super_block *sb)
+/*
+ * Sets the group of every inode under @root. Tracing files exist before the
+ * first userspace mount, so a gid= option reaches them only through this
+ * walk. A child killed by dput() during the walk carries DCACHE_DISCONNECTED
+ * once its parent's d_lock is free, and its d_u.d_child then holds an RCU
+ * head, so the walk restarts from @root instead of following it.
+ */
+static void tracefs_set_gid(struct dentry *root, gid_t gid)
+{
+	struct dentry *this_parent;
+	struct list_head *next;
+
+again:
+	this_parent = root;
+	spin_lock(&this_parent->d_lock);
+	if (this_parent->d_inode)
+		this_parent->d_inode->i_gid = gid;
+repeat:
+	next = this_parent->d_subdirs.next;
+resume:
+	while (next != &this_parent->d_subdirs) {
+		struct dentry *dentry = list_entry(next, struct dentry,
+						   d_u.d_child);
+
+		next = next->next;
+		spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
+		if (dentry->d_inode)
+			dentry->d_inode->i_gid = gid;
+		if (!list_empty(&dentry->d_subdirs)) {
+			spin_unlock(&this_parent->d_lock);
+			spin_release(&dentry->d_lock.dep_map, 1, _RET_IP_);
+			this_parent = dentry;
+			spin_acquire(&this_parent->d_lock.dep_map, 0, 1,
+				     _RET_IP_);
+			goto repeat;
+		}
+		spin_unlock(&dentry->d_lock);
+	}
+	if (this_parent != root) {
+		struct dentry *child = this_parent;
+
+		rcu_read_lock();
+		this_parent = child->d_parent;
+		spin_unlock(&child->d_lock);
+		spin_lock(&this_parent->d_lock);
+		if (child->d_flags & DCACHE_DISCONNECTED) {
+			spin_unlock(&this_parent->d_lock);
+			rcu_read_unlock();
+			goto again;
+		}
+		rcu_read_unlock();
+		next = child->d_u.d_child.next;
+		goto resume;
+	}
+	spin_unlock(&this_parent->d_lock);
+}
+
+/*
+ * The first mount applies every option. A remount, which is also what each
+ * later mount of the shared superblock performs through mount_single(),
+ * applies only the options in @supplied, so a mount without mode= keeps a
+ * chmod of the root.
+ */
+static void tracefs_apply_options(struct super_block *sb,
+				  unsigned int supplied)
 {
 	struct tracefs_fs_info *fsi = sb->s_fs_info;
 	struct inode *inode = sb->s_root->d_inode;
 	struct tracefs_mount_opts *opts = &fsi->mount_opts;
 
-	inode->i_mode &= ~S_IALLUGO;
-	inode->i_mode |= opts->mode;
+	if (supplied & (1U << Opt_mode)) {
+		inode->i_mode &= ~S_IALLUGO;
+		inode->i_mode |= opts->mode;
+	}
 
-	inode->i_uid = opts->uid;
-	inode->i_gid = opts->gid;
+	if (supplied & (1U << Opt_uid))
+		inode->i_uid = opts->uid;
 
-	return 0;
+	if (supplied & (1U << Opt_gid))
+		tracefs_set_gid(sb->s_root, opts->gid);
 }
 
 static int tracefs_remount(struct super_block *sb, int *flags, char *data)
 {
 	int err;
 	struct tracefs_fs_info *fsi = sb->s_fs_info;
+	struct tracefs_mount_opts new_opts = {};
 
 	sync_filesystem(sb);
-	err = tracefs_parse_options(data, &fsi->mount_opts);
+	err = tracefs_parse_options(data, &new_opts);
 	if (err)
-		goto fail;
+		return err;
 
-	tracefs_apply_options(sb);
+	if (new_opts.opts & (1U << Opt_uid))
+		fsi->mount_opts.uid = new_opts.uid;
+	if (new_opts.opts & (1U << Opt_gid))
+		fsi->mount_opts.gid = new_opts.gid;
+	if (new_opts.opts & (1U << Opt_mode))
+		fsi->mount_opts.mode = new_opts.mode;
 
-fail:
-	return err;
+	tracefs_apply_options(sb, new_opts.opts);
+
+	return 0;
 }
 
 static int tracefs_show_options(struct seq_file *m, struct dentry *root)
@@ -205,7 +285,7 @@ static int trace_fill_super(struct super_block *sb, void *data, int silent)
 
 	sb->s_op = &tracefs_super_operations;
 
-	tracefs_apply_options(sb);
+	tracefs_apply_options(sb, ~0U);
 
 	return 0;
 
@@ -340,6 +420,8 @@ struct dentry *tracefs_create_file(const char *name, umode_t mode,
 		return failed_creating(dentry);
 
 	inode->i_mode = mode;
+	inode->i_uid = dentry->d_parent->d_inode->i_uid;
+	inode->i_gid = dentry->d_parent->d_inode->i_gid;
 	inode->i_fop = fops ? fops : &tracefs_file_operations;
 	inode->i_private = data;
 	d_instantiate(dentry, inode);
@@ -377,6 +459,8 @@ struct dentry *tracefs_create_dir(const char *name, struct dentry *parent)
 		return failed_creating(dentry);
 
 	inode->i_mode = S_IFDIR | S_IRWXU | S_IRUGO | S_IXUGO;
+	inode->i_uid = dentry->d_parent->d_inode->i_uid;
+	inode->i_gid = dentry->d_parent->d_inode->i_gid;
 	inode->i_op = &simple_dir_inode_operations;
 	inode->i_fop = &simple_dir_operations;
 
