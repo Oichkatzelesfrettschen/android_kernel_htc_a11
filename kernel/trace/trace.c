@@ -3922,6 +3922,13 @@ static const struct file_operations tracing_dyn_info_fops = {
 
 static struct dentry *d_tracer;
 
+/*
+ * Mounts tracefs on /sys/kernel/debug/tracing when a path walk crosses it.
+ * MS_KERNMOUNT exempts the walking task from the filesystem mount check in
+ * selinux_sb_kern_mount(); do_add_mount() clears the MNT_INTERNAL flag that
+ * vfs_kern_mount() sets for it. NULL mount data leaves the mount options of
+ * the shared tracefs superblock unchanged.
+ */
 static struct vfsmount *tracefs_debugfs_automount(void *data)
 {
 	struct file_system_type *filesystem;
@@ -3933,7 +3940,7 @@ static struct vfsmount *tracefs_debugfs_automount(void *data)
 	if (!filesystem)
 		return NULL;
 
-	mount = vfs_kern_mount(filesystem, 0, "tracefs", NULL);
+	mount = vfs_kern_mount(filesystem, MS_KERNMOUNT, "tracefs", NULL);
 	put_filesystem(filesystem);
 	if (IS_ERR(mount))
 		return NULL;
