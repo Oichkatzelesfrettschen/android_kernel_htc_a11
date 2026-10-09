@@ -29,19 +29,13 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/input.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
-#endif
+#include <linux/input/wake_pwrkey.h>
+#include <linux/fb.h>
+#include <linux/notifier.h>
+#include <linux/wakelock.h>
 #include <linux/hrtimer.h>
 #include <asm-generic/cputime.h>
 
-/* uncomment since no touchscreen defines android touch, do that here */
-//#define ANDROID_TOUCH_DECLARED
-
-/* if Sweep2Wake is compiled it will already have taken care of this */
-#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
-#define ANDROID_TOUCH_DECLARED
-#endif
 
 /* Version, author, desc, etc */
 #define DRIVER_AUTHOR "Dennis Rassmann <showp1984@gmail.com>"
@@ -52,13 +46,12 @@
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESCRIPTION);
 MODULE_VERSION(DRIVER_VERSION);
-MODULE_LICENSE("GPLv2");
+MODULE_LICENSE("GPL v2");
 
 /* Tuneables */
 #define DT2W_DEBUG		0
 #define DT2W_DEFAULT		0
 
-#define DT2W_PWRKEY_DUR		60
 #define DT2W_FEATHER		200
 #define DT2W_TIME		700
 
@@ -70,10 +63,9 @@ static int touch_x = 0, touch_y = 0, touch_nr = 0, x_pre = 0, y_pre = 0;
 static bool touch_x_called = false, touch_y_called = false, touch_cnt = true;
 static bool exec_count = true;
 //static struct notifier_block dt2w_lcd_notif;
-static struct input_dev * doubletap2wake_pwrdev;
-static DEFINE_MUTEX(pwrkeyworklock);
 static struct workqueue_struct *dt2w_input_wq;
 static struct work_struct dt2w_input_work;
+static struct wake_lock dt2w_wake_lock;
 
 /* Read cmdline for dt2w */
 static int __init read_dt2w_cmdline(char *dt2w)
@@ -101,17 +93,8 @@ static void doubletap2wake_reset(void) {
 }
 
 /* PowerKey work func */
-static void doubletap2wake_presspwr(struct work_struct * doubletap2wake_presspwr_work) {
-	if (!mutex_trylock(&pwrkeyworklock))
-                return;
-	input_event(doubletap2wake_pwrdev, EV_KEY, KEY_POWER, 1);
-	input_event(doubletap2wake_pwrdev, EV_SYN, 0, 0);
-	msleep(DT2W_PWRKEY_DUR);
-	input_event(doubletap2wake_pwrdev, EV_KEY, KEY_POWER, 0);
-	input_event(doubletap2wake_pwrdev, EV_SYN, 0, 0);
-	msleep(DT2W_PWRKEY_DUR);
-        mutex_unlock(&pwrkeyworklock);
-	return;
+static void doubletap2wake_presspwr(struct work_struct *work) {
+	wake_pwrkey_press();
 }
 static DECLARE_WORK(doubletap2wake_presspwr_work, doubletap2wake_presspwr);
 
@@ -188,7 +171,7 @@ static void dt2w_input_event(struct input_handle *handle, unsigned int type,
 		(code==ABS_MT_TRACKING_ID) ? "ID" :
 		"undef"), code, value);
 #endif
-	if (!dt2w_scr_suspended)
+	if (dt2w_switch <= 0 || !dt2w_scr_suspended)
 		return;
 
 	if (code == ABS_MT_SLOT) {
@@ -214,17 +197,14 @@ static void dt2w_input_event(struct input_handle *handle, unsigned int type,
 	if (touch_x_called || touch_y_called) {
 		touch_x_called = false;
 		touch_y_called = false;
+		wake_lock_timeout(&dt2w_wake_lock, HZ);
 		queue_work_on(0, dt2w_input_wq, &dt2w_input_work);
 	}
 }
 
+/* The Himax HM852xD driver registers its touch input device under this name. */
 static int input_dev_filter(struct input_dev *dev) {
-	if (strstr(dev->name, "touch") ||
-	    strstr(dev->name, "synaptics_dsx_i2c")) {
-		return 0;
-	} else {
-		return 1;
-	}
+	return strcmp(dev->name, "himax-touchscreen") ? 1 : 0;
 }
 
 static int dt2w_input_connect(struct input_handler *handler,
@@ -278,27 +258,31 @@ static struct input_handler dt2w_input_handler = {
 	.id_table	= dt2w_ids,
 };
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void dt2w_early_suspend(struct early_suspend *h) {
-	dt2w_scr_suspended = true;
+/* Tracks the primary framebuffer: any blank level other than UNBLANK is
+ * screen off, the same split the Himax suspend path uses. */
+static int dt2w_fb_notifier_call(struct notifier_block *nb,
+				unsigned long event, void *data) {
+	struct fb_event *evdata = data;
+	int *blank;
+
+	if (event != FB_EVENT_BLANK || !evdata || !evdata->data ||
+	    !evdata->info || evdata->info->node != 0)
+		return NOTIFY_OK;
+
+	blank = evdata->data;
+	dt2w_scr_suspended = (*blank != FB_BLANK_UNBLANK);
+	return NOTIFY_OK;
 }
 
-static void dt2w_late_resume(struct early_suspend *h) {
-	dt2w_scr_suspended = false;
-}
-
-static struct early_suspend dt2w_early_suspend_handler = {
-	.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN,
-	.suspend = dt2w_early_suspend,
-	.resume = dt2w_late_resume,
+static struct notifier_block dt2w_fb_notif = {
+	.notifier_call = dt2w_fb_notifier_call,
 };
-#endif
 
 /*
  * SYSFS stuff below here
  */
-static ssize_t dt2w_doubletap2wake_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t dt2w_doubletap2wake_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
 {
 	size_t count = 0;
 
@@ -307,21 +291,40 @@ static ssize_t dt2w_doubletap2wake_show(struct device *dev,
 	return count;
 }
 
-static ssize_t dt2w_doubletap2wake_dump(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
+/*
+ * The shared power key device is registered while the switch is above zero.
+ * Returns 0 or a negative errno.
+ */
+static int dt2w_set_switch(int val)
+{
+	static DEFINE_MUTEX(dt2w_switch_lock);
+	int rc = 0;
+
+	mutex_lock(&dt2w_switch_lock);
+	if (val > 0 && dt2w_switch <= 0)
+		rc = wake_pwrkey_get();
+	else if (val <= 0 && dt2w_switch > 0)
+		wake_pwrkey_put();
+	if (!rc)
+		dt2w_switch = val;
+	mutex_unlock(&dt2w_switch_lock);
+	return rc;
+}
+
+static ssize_t dt2w_doubletap2wake_dump(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
 {
 	if (buf[0] >= '0' && buf[0] <= '2' && buf[1] == '\n')
-                if (dt2w_switch != buf[0] - '0')
-		        dt2w_switch = buf[0] - '0';
+		return dt2w_set_switch(buf[0] - '0') ? : count;
 
 	return count;
 }
 
-static DEVICE_ATTR(doubletap2wake, (S_IWUSR|S_IRUGO),
-	dt2w_doubletap2wake_show, dt2w_doubletap2wake_dump);
+static struct kobj_attribute dev_attr_doubletap2wake =
+	__ATTR(doubletap2wake, (S_IWUSR|S_IRUGO), dt2w_doubletap2wake_show, dt2w_doubletap2wake_dump);
 
-static ssize_t dt2w_version_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t dt2w_version_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
 {
 	size_t count = 0;
 
@@ -330,93 +333,86 @@ static ssize_t dt2w_version_show(struct device *dev,
 	return count;
 }
 
-static ssize_t dt2w_version_dump(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
+static ssize_t dt2w_version_dump(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
 {
 	return count;
 }
 
-static DEVICE_ATTR(doubletap2wake_version, (S_IWUSR|S_IRUGO),
-	dt2w_version_show, dt2w_version_dump);
+static struct kobj_attribute dev_attr_doubletap2wake_version =
+	__ATTR(doubletap2wake_version, (S_IWUSR|S_IRUGO), dt2w_version_show, dt2w_version_dump);
+
 
 /*
- * INIT / EXIT stuff below here
+ * Called by the Himax driver once its android_touch kobject exists, so the
+ * gesture switch appears beside the other touchscreen controls.
  */
-#ifdef ANDROID_TOUCH_DECLARED
-extern struct kobject *android_touch_kobj;
-#else
-struct kobject *android_touch_kobj;
-EXPORT_SYMBOL_GPL(android_touch_kobj);
-#endif
+int doubletap2wake_sysfs_init(struct kobject *kobj)
+{
+	int rc;
+
+	rc = sysfs_create_file(kobj, &dev_attr_doubletap2wake.attr);
+	if (rc)
+		goto err;
+	rc = sysfs_create_file(kobj, &dev_attr_doubletap2wake_version.attr);
+	if (rc)
+		goto err_version;
+	return 0;
+
+err_version:
+	sysfs_remove_file(kobj, &dev_attr_doubletap2wake.attr);
+err:
+	pr_warn(LOGTAG"%s: sysfs_create_file failed (%d)\n", __func__, rc);
+	return rc;
+}
+
+void doubletap2wake_sysfs_exit(struct kobject *kobj)
+{
+	sysfs_remove_file(kobj, &dev_attr_doubletap2wake_version.attr);
+	sysfs_remove_file(kobj, &dev_attr_doubletap2wake.attr);
+}
+
 static int __init doubletap2wake_init(void)
 {
-	int rc = 0;
-
-	doubletap2wake_pwrdev = input_allocate_device();
-	if (!doubletap2wake_pwrdev) {
-		pr_err("Can't allocate suspend autotest power button\n");
-		goto err_alloc_dev;
-	}
-
-	input_set_capability(doubletap2wake_pwrdev, EV_KEY, KEY_POWER);
-	doubletap2wake_pwrdev->name = "dt2w_pwrkey";
-	doubletap2wake_pwrdev->phys = "dt2w_pwrkey/input0";
-
-	rc = input_register_device(doubletap2wake_pwrdev);
-	if (rc) {
-		pr_err("%s: input_register_device err=%d\n", __func__, rc);
-		goto err_input_dev;
-	}
+	int rc;
 
 	dt2w_input_wq = create_workqueue("dt2wiwq");
 	if (!dt2w_input_wq) {
 		pr_err("%s: Failed to create dt2wiwq workqueue\n", __func__);
-		return -EFAULT;
+		rc = -ENOMEM;
+		goto err_wq;
 	}
 	INIT_WORK(&dt2w_input_work, dt2w_input_callback);
+	wake_lock_init(&dt2w_wake_lock, WAKE_LOCK_SUSPEND, "doubletap2wake");
+
 	rc = input_register_handler(&dt2w_input_handler);
-	if (rc)
+	if (rc) {
 		pr_err("%s: Failed to register dt2w_input_handler\n", __func__);
-
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	register_early_suspend(&dt2w_early_suspend_handler);
-#endif
-
-#ifndef ANDROID_TOUCH_DECLARED
-	android_touch_kobj = kobject_create_and_add("android_touch", NULL) ;
-	if (android_touch_kobj == NULL) {
-		pr_warn("%s: android_touch_kobj create_and_add failed\n", __func__);
+		goto err_handler;
 	}
-#endif
-	rc = sysfs_create_file(android_touch_kobj, &dev_attr_doubletap2wake.attr);
+
+	rc = fb_register_client(&dt2w_fb_notif);
 	if (rc) {
-		pr_warn("%s: sysfs_create_file failed for doubletap2wake\n", __func__);
-	}
-	rc = sysfs_create_file(android_touch_kobj, &dev_attr_doubletap2wake_version.attr);
-	if (rc) {
-		pr_warn("%s: sysfs_create_file failed for doubletap2wake_version\n", __func__);
+		pr_err("%s: Failed to register the fb notifier\n", __func__);
+		goto err_fb;
 	}
 
-err_input_dev:
-	input_free_device(doubletap2wake_pwrdev);
-err_alloc_dev:
+	/* A boot parameter can enable the gesture before this point. */
+	if (dt2w_switch > 0 && wake_pwrkey_get()) {
+		pr_err("%s: no power key device, doubletap2wake disabled\n", __func__);
+		dt2w_switch = 0;
+	}
+
 	pr_info(LOGTAG"%s done\n", __func__);
-
 	return 0;
-}
 
-static void __exit doubletap2wake_exit(void)
-{
-#ifndef ANDROID_TOUCH_DECLARED
-	kobject_del(android_touch_kobj);
-#endif
+err_fb:
 	input_unregister_handler(&dt2w_input_handler);
+err_handler:
+	wake_lock_destroy(&dt2w_wake_lock);
 	destroy_workqueue(dt2w_input_wq);
-	input_unregister_device(doubletap2wake_pwrdev);
-	input_free_device(doubletap2wake_pwrdev);
-	return;
+err_wq:
+	return rc;
 }
 
 module_init(doubletap2wake_init);
-module_exit(doubletap2wake_exit);
-

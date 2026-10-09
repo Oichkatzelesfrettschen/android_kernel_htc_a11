@@ -51,6 +51,13 @@
 #include <linux/psensor_himax.h>
 #endif
 
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+#include <linux/input/sweep2wake.h>
+#endif
+#ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE
+#include <linux/input/doubletap2wake.h>
+#endif
+
 #define HIMAX_I2C_RETRY_TIMES 10
 #define FAKE_EVENT
 #define SUPPORT_FINGER_DATA_CHECKSUM 0x0F
@@ -282,6 +289,7 @@ struct himax_ts_data {
 	uint32_t pl_y_min;
 	uint32_t pl_y_max;
 	bool suspended;
+	bool gesture_wake;
 };
 
 static struct himax_ts_data *private_ts;
@@ -5153,11 +5161,24 @@ static int himax_touch_sysfs_init(void)
 	}
 #endif
 
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+	sweep2wake_sysfs_init(android_touch_kobj);
+#endif
+#ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE
+	doubletap2wake_sysfs_init(android_touch_kobj);
+#endif
+
 	return 0 ;
 }
 
 static void himax_touch_sysfs_deinit(void)
 {
+#ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE
+	doubletap2wake_sysfs_exit(android_touch_kobj);
+#endif
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+	sweep2wake_sysfs_exit(android_touch_kobj);
+#endif
 	#ifdef HX_TP_SYS_DIAG
 	sysfs_remove_file(android_touch_kobj, &dev_attr_diag.attr);
 	#endif
@@ -7315,6 +7336,24 @@ out:
 }
 #endif
 
+/*
+ * A wake gesture needs the controller scanning while the screen is off, so
+ * suspend leaves it in active scan mode and arms its interrupt as a wake
+ * source instead of entering deep standby.
+ */
+static bool himax_wake_gesture_armed(void)
+{
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+	if (s2w_switch > 0)
+		return true;
+#endif
+#ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE
+	if (dt2w_switch > 0)
+		return true;
+#endif
+	return false;
+}
+
 static int himax8528_suspend(struct device *dev)
 {
 	int ret;
@@ -7356,6 +7395,21 @@ static int himax8528_suspend(struct device *dev)
 		return 0;
 	}
 	#endif
+
+	if (himax_wake_gesture_armed()) {
+		ret = enable_irq_wake(ts->client->irq);
+		if (!ret) {
+			ts->gesture_wake = true;
+			atomic_set(&ts->suspend_mode, 1);
+			ts->first_pressed = 0;
+			ts->pre_finger_mask = 0;
+			I("%s: wake gesture armed, controller stays active\n",
+				__func__);
+			return 0;
+		}
+		E("%s: enable_irq_wake failed (%d), entering deep standby\n",
+			__func__, ret);
+	}
 
 	himax_int_enable(0);
 
@@ -7417,6 +7471,14 @@ static int himax8528_resume(struct device *dev)
 	struct himax_ts_data *ts = dev_get_drvdata(dev);
 
 	I("%s: enter\n", __func__);
+
+	if (ts->gesture_wake) {
+		disable_irq_wake(ts->client->irq);
+		ts->gesture_wake = false;
+		atomic_set(&ts->suspend_mode, 0);
+		ts->suspended = false;
+		return 0;
+	}
 
 	if (ts->pdata->powerOff3V3 && ts->pdata->power)
 		ts->pdata->power(1);

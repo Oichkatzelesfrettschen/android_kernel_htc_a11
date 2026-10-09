@@ -21,7 +21,12 @@
 #ifndef _LINUX_SWEEP2WAKE_H
 #define _LINUX_SWEEP2WAKE_H
 
+struct kobject;
+
 extern bool s2w_scr_suspended;
 extern int s2w_switch, s2w_s2sonly;
+
+int sweep2wake_sysfs_init(struct kobject *kobj);
+void sweep2wake_sysfs_exit(struct kobject *kobj);
 
 #endif	/* _LINUX_SWEEP2WAKE_H */

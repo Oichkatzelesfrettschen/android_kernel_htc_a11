@@ -32,13 +32,12 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/input.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
-#endif
+#include <linux/input/wake_pwrkey.h>
+#include <linux/fb.h>
+#include <linux/notifier.h>
+#include <linux/wakelock.h>
 #include <linux/hrtimer.h>
 
-/* uncomment since no touchscreen defines android touch, do that here */
-//#define ANDROID_TOUCH_DECLARED
 
 /* Version, author, desc, etc */
 #define DRIVER_AUTHOR "Dennis Rassmann <showp1984@gmail.com>"
@@ -49,13 +48,12 @@
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESCRIPTION);
 MODULE_VERSION(DRIVER_VERSION);
-MODULE_LICENSE("GPLv2");
+MODULE_LICENSE("GPL v2");
 
 /* Tuneables */
 #define S2W_DEBUG		0
 #define S2W_DEFAULT		0
 #define S2W_S2SONLY_DEFAULT	0
-#define S2W_PWRKEY_DUR          60
 
 #define DEFAULT_S2W_Y_MAX               1280
 #define DEFAULT_S2W_X_MAX               720
@@ -72,10 +70,9 @@ static bool touch_x_called = false, touch_y_called = false;
 static bool exec_count = true;
 static bool scr_on_touch = false, barrier[2] = {false, false};
 //static struct notifier_block s2w_lcd_notif;
-static struct input_dev * sweep2wake_pwrdev;
-static DEFINE_MUTEX(pwrkeyworklock);
 static struct workqueue_struct *s2w_input_wq;
 static struct work_struct s2w_input_work;
+static struct wake_lock s2w_wake_lock;
 
 static int s2w_start_posn = DEFAULT_S2W_X_B1;
 static int s2w_mid_posn = DEFAULT_S2W_X_B2;
@@ -102,17 +99,8 @@ static int __init read_s2w_cmdline(char *s2w)
 __setup("s2w=", read_s2w_cmdline);
 
 /* PowerKey work func */
-static void sweep2wake_presspwr(struct work_struct * sweep2wake_presspwr_work) {
-	if (!mutex_trylock(&pwrkeyworklock))
-                return;
-	input_event(sweep2wake_pwrdev, EV_KEY, KEY_POWER, 1);
-	input_event(sweep2wake_pwrdev, EV_SYN, 0, 0);
-	msleep(S2W_PWRKEY_DUR);
-	input_event(sweep2wake_pwrdev, EV_KEY, KEY_POWER, 0);
-	input_event(sweep2wake_pwrdev, EV_SYN, 0, 0);
-	msleep(S2W_PWRKEY_DUR);
-        mutex_unlock(&pwrkeyworklock);
-	return;
+static void sweep2wake_presspwr(struct work_struct *work) {
+	wake_pwrkey_press();
 }
 static DECLARE_WORK(sweep2wake_presspwr_work, sweep2wake_presspwr);
 
@@ -368,6 +356,9 @@ static void s2w_input_event(struct input_handle *handle, unsigned int type,
 		(code==ABS_MT_TRACKING_ID) ? "ID" :
 		"undef"), code, value);
 #endif
+	if (s2w_switch <= 0)
+		return;
+
 	if (code == ABS_MT_SLOT) {
 		sweep2wake_reset();
 		return;
@@ -391,17 +382,15 @@ static void s2w_input_event(struct input_handle *handle, unsigned int type,
 	if (touch_x_called && touch_y_called) {
 		touch_x_called = false;
 		touch_y_called = false;
+		if (s2w_scr_suspended)
+			wake_lock_timeout(&s2w_wake_lock, HZ);
 		queue_work_on(0, s2w_input_wq, &s2w_input_work);
 	}
 }
 
+/* The Himax HM852xD driver registers its touch input device under this name. */
 static int input_dev_filter(struct input_dev *dev) {
-	if (strstr(dev->name, "touch") ||
-	    strstr(dev->name, "synaptics_dsx_i2c")) {
-		return 0;
-	} else {
-		return 1;
-	}
+	return strcmp(dev->name, "himax-touchscreen") ? 1 : 0;
 }
 
 static int s2w_input_connect(struct input_handler *handler,
@@ -455,27 +444,31 @@ static struct input_handler s2w_input_handler = {
 	.id_table	= s2w_ids,
 };
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void s2w_early_suspend(struct early_suspend *h) {
-	s2w_scr_suspended = true;
+/* Tracks the primary framebuffer: any blank level other than UNBLANK is
+ * screen off, the same split the Himax suspend path uses. */
+static int s2w_fb_notifier_call(struct notifier_block *nb,
+				unsigned long event, void *data) {
+	struct fb_event *evdata = data;
+	int *blank;
+
+	if (event != FB_EVENT_BLANK || !evdata || !evdata->data ||
+	    !evdata->info || evdata->info->node != 0)
+		return NOTIFY_OK;
+
+	blank = evdata->data;
+	s2w_scr_suspended = (*blank != FB_BLANK_UNBLANK);
+	return NOTIFY_OK;
 }
 
-static void s2w_late_resume(struct early_suspend *h) {
-	s2w_scr_suspended = false;
-}
-
-static struct early_suspend s2w_early_suspend_handler = {
-	.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN,
-	.suspend = s2w_early_suspend,
-	.resume = s2w_late_resume,
+static struct notifier_block s2w_fb_notif = {
+	.notifier_call = s2w_fb_notifier_call,
 };
-#endif
 
 /*
  * SYSFS stuff below here
  */
-static ssize_t s2w_sweep2wake_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t s2w_sweep2wake_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
 {
 	size_t count = 0;
 
@@ -484,21 +477,40 @@ static ssize_t s2w_sweep2wake_show(struct device *dev,
 	return count;
 }
 
-static ssize_t s2w_sweep2wake_dump(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
+/*
+ * The shared power key device is registered while the switch is above zero.
+ * Returns 0 or a negative errno.
+ */
+static int s2w_set_switch(int val)
+{
+	static DEFINE_MUTEX(s2w_switch_lock);
+	int rc = 0;
+
+	mutex_lock(&s2w_switch_lock);
+	if (val > 0 && s2w_switch <= 0)
+		rc = wake_pwrkey_get();
+	else if (val <= 0 && s2w_switch > 0)
+		wake_pwrkey_put();
+	if (!rc)
+		s2w_switch = val;
+	mutex_unlock(&s2w_switch_lock);
+	return rc;
+}
+
+static ssize_t s2w_sweep2wake_dump(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
 {
 	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n')
-                if (s2w_switch != buf[0] - '0')
-		        s2w_switch = buf[0] - '0';
+		return s2w_set_switch(buf[0] - '0') ? : count;
 
 	return count;
 }
 
-static DEVICE_ATTR(sweep2wake, (S_IWUSR|S_IRUGO),
-	s2w_sweep2wake_show, s2w_sweep2wake_dump);
+static struct kobj_attribute dev_attr_sweep2wake =
+	__ATTR(sweep2wake, (S_IWUSR|S_IRUGO), s2w_sweep2wake_show, s2w_sweep2wake_dump);
 
-static ssize_t s2w_s2w_s2sonly_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t s2w_s2w_s2sonly_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
 {
 	size_t count = 0;
 
@@ -507,8 +519,8 @@ static ssize_t s2w_s2w_s2sonly_show(struct device *dev,
 	return count;
 }
 
-static ssize_t s2w_s2w_s2sonly_dump(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
+static ssize_t s2w_s2w_s2sonly_dump(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
 {
 	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n')
                 if (s2w_s2sonly != buf[0] - '0')
@@ -517,11 +529,11 @@ static ssize_t s2w_s2w_s2sonly_dump(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(s2w_s2sonly, (S_IWUSR|S_IRUGO),
-	s2w_s2w_s2sonly_show, s2w_s2w_s2sonly_dump);
+static struct kobj_attribute dev_attr_s2w_s2sonly =
+	__ATTR(s2w_s2sonly, (S_IWUSR|S_IRUGO), s2w_s2w_s2sonly_show, s2w_s2w_s2sonly_dump);
 
-static ssize_t s2w_version_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t s2w_version_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
 {
 	size_t count = 0;
 
@@ -530,111 +542,106 @@ static ssize_t s2w_version_show(struct device *dev,
 	return count;
 }
 
-static ssize_t s2w_version_dump(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
+static ssize_t s2w_version_dump(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
 {
 	return count;
 }
 
-static DEVICE_ATTR(sweep2wake_version, (S_IWUSR|S_IRUGO),
-	s2w_version_show, s2w_version_dump);
+static struct kobj_attribute dev_attr_sweep2wake_version =
+	__ATTR(sweep2wake_version, (S_IWUSR|S_IRUGO), s2w_version_show, s2w_version_dump);
+
 
 /*
- * INIT / EXIT stuff below here
+ * Called by the Himax driver once its android_touch kobject exists, so the
+ * gesture switches appear beside the other touchscreen controls.
  */
-#ifdef ANDROID_TOUCH_DECLARED
-extern struct kobject *android_touch_kobj;
-#else
-struct kobject *android_touch_kobj;
-EXPORT_SYMBOL_GPL(android_touch_kobj);
-#endif
+int sweep2wake_sysfs_init(struct kobject *kobj)
+{
+	int rc;
+
+	rc = sysfs_create_file(kobj, &dev_attr_sweep2wake.attr);
+	if (rc)
+		goto err;
+	rc = sysfs_create_file(kobj, &dev_attr_s2w_s2sonly.attr);
+	if (rc)
+		goto err_s2sonly;
+	rc = sysfs_create_file(kobj, &dev_attr_sweep2wake_version.attr);
+	if (rc)
+		goto err_version;
+	return 0;
+
+err_version:
+	sysfs_remove_file(kobj, &dev_attr_s2w_s2sonly.attr);
+err_s2sonly:
+	sysfs_remove_file(kobj, &dev_attr_sweep2wake.attr);
+err:
+	pr_warn(LOGTAG"%s: sysfs_create_file failed (%d)\n", __func__, rc);
+	return rc;
+}
+
+void sweep2wake_sysfs_exit(struct kobject *kobj)
+{
+	sysfs_remove_file(kobj, &dev_attr_sweep2wake_version.attr);
+	sysfs_remove_file(kobj, &dev_attr_s2w_s2sonly.attr);
+	sysfs_remove_file(kobj, &dev_attr_sweep2wake.attr);
+}
 
 static int __init sweep2wake_init(void)
 {
-	int rc = 0;
-	int sysfs_result;
+	int rc;
 
 	s2w_parameters_kobj = kobject_create_and_add("s2w_parameters", kernel_kobj);
 	if (!s2w_parameters_kobj) {
-		pr_err("%s kobject create failed!\n", __FUNCTION__);
+		pr_err("%s kobject create failed!\n", __func__);
 		return -ENOMEM;
-        }
-
-	sysfs_result = sysfs_create_group(s2w_parameters_kobj, &s2w_parameters_attr_group);
-
-    if (sysfs_result) {
-		pr_info("%s sysfs create failed!\n", __FUNCTION__);
-		kobject_put(s2w_parameters_kobj);
 	}
-
-	sweep2wake_pwrdev = input_allocate_device();
-	if (!sweep2wake_pwrdev) {
-		pr_err("Can't allocate suspend autotest power button\n");
-		goto err_alloc_dev;
-	}
-
-	input_set_capability(sweep2wake_pwrdev, EV_KEY, KEY_POWER);
-	sweep2wake_pwrdev->name = "s2w_pwrkey";
-	sweep2wake_pwrdev->phys = "s2w_pwrkey/input0";
-
-	rc = input_register_device(sweep2wake_pwrdev);
+	rc = sysfs_create_group(s2w_parameters_kobj, &s2w_parameters_attr_group);
 	if (rc) {
-		pr_err("%s: input_register_device err=%d\n", __func__, rc);
-		goto err_input_dev;
+		pr_err("%s sysfs create failed!\n", __func__);
+		goto err_group;
 	}
 
 	s2w_input_wq = create_workqueue("s2wiwq");
 	if (!s2w_input_wq) {
 		pr_err("%s: Failed to create s2wiwq workqueue\n", __func__);
-		return -EFAULT;
+		rc = -ENOMEM;
+		goto err_wq;
 	}
 	INIT_WORK(&s2w_input_work, s2w_input_callback);
+	wake_lock_init(&s2w_wake_lock, WAKE_LOCK_SUSPEND, "sweep2wake");
+
 	rc = input_register_handler(&s2w_input_handler);
-	if (rc)
+	if (rc) {
 		pr_err("%s: Failed to register s2w_input_handler\n", __func__);
-
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	register_early_suspend(&s2w_early_suspend_handler);
-#endif
-
-#ifndef ANDROID_TOUCH_DECLARED
-	android_touch_kobj = kobject_create_and_add("android_touch", NULL) ;
-	if (android_touch_kobj == NULL) {
-		pr_warn("%s: android_touch_kobj create_and_add failed\n", __func__);
-	}
-#endif
-	rc = sysfs_create_file(android_touch_kobj, &dev_attr_sweep2wake.attr);
-	if (rc) {
-		pr_warn("%s: sysfs_create_file failed for sweep2wake\n", __func__);
-	}
-	rc = sysfs_create_file(android_touch_kobj, &dev_attr_s2w_s2sonly.attr);
-	if (rc) {
-		pr_warn("%s: sysfs_create_file failed for s2w_s2sonly\n", __func__);
-	}
-	rc = sysfs_create_file(android_touch_kobj, &dev_attr_sweep2wake_version.attr);
-	if (rc) {
-		pr_warn("%s: sysfs_create_file failed for sweep2wake_version\n", __func__);
+		goto err_handler;
 	}
 
-err_input_dev:
-	input_free_device(sweep2wake_pwrdev);
-err_alloc_dev:
+	rc = fb_register_client(&s2w_fb_notif);
+	if (rc) {
+		pr_err("%s: Failed to register the fb notifier\n", __func__);
+		goto err_fb;
+	}
+
+	/* A boot parameter can enable the gesture before this point. */
+	if (s2w_switch > 0 && wake_pwrkey_get()) {
+		pr_err("%s: no power key device, sweep2wake disabled\n", __func__);
+		s2w_switch = 0;
+	}
+
 	pr_info(LOGTAG"%s done\n", __func__);
-
 	return 0;
-}
 
-static void __exit sweep2wake_exit(void)
-{
-#ifndef ANDROID_TOUCH_DECLARED
-	kobject_del(android_touch_kobj);
-#endif
+err_fb:
 	input_unregister_handler(&s2w_input_handler);
+err_handler:
+	wake_lock_destroy(&s2w_wake_lock);
 	destroy_workqueue(s2w_input_wq);
-	input_unregister_device(sweep2wake_pwrdev);
-	input_free_device(sweep2wake_pwrdev);
-	return;
+err_wq:
+	sysfs_remove_group(s2w_parameters_kobj, &s2w_parameters_attr_group);
+err_group:
+	kobject_put(s2w_parameters_kobj);
+	return rc;
 }
 
 module_init(sweep2wake_init);
-module_exit(sweep2wake_exit);

@@ -21,7 +21,12 @@
 #ifndef _LINUX_DOUBLETAP2WAKE_H
 #define _LINUX_DOUBLETAP2WAKE_H
 
+struct kobject;
+
 extern bool dt2w_scr_suspended;
 extern int dt2w_switch;
+
+int doubletap2wake_sysfs_init(struct kobject *kobj);
+void doubletap2wake_sysfs_exit(struct kobject *kobj);
 
 #endif	/* _LINUX_DOUBLETAP2WAKE_H */
