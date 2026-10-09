@@ -815,6 +815,17 @@ int ghid_setup(struct usb_gadget *g, int count)
 	return 0;
 }
 
+/* True while ghid_setup() holds the character device region. */
+bool ghid_available(void)
+{
+	bool available;
+
+	mutex_lock(&hidg_table_lock);
+	available = minors > 0;
+	mutex_unlock(&hidg_table_lock);
+	return available;
+}
+
 void ghid_cleanup(void)
 {
 	mutex_lock(&hidg_table_lock);
