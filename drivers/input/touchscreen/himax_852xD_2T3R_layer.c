@@ -7344,7 +7344,7 @@ out:
 static bool himax_wake_gesture_armed(void)
 {
 #ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
-	if (s2w_switch > 0)
+	if (s2w_switch > 0 && !s2w_s2sonly)
 		return true;
 #endif
 #ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE

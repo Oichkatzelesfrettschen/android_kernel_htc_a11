@@ -153,8 +153,9 @@ static void detect_sweep2wake(int sweep_coord, int sweep_height, bool st)
 		sweep_coord = swap_temp2;
 	}
 
-	//power on
-	if ((single_touch) && (s2w_scr_suspended == true) && (s2w_switch > 0)) {
+	/* s2w_s2sonly leaves only the screen-on sweep to sleep. */
+	if ((single_touch) && (s2w_scr_suspended == true) && (s2w_switch > 0) &&
+	    (s2w_s2sonly == 0)) {
 		prev_coord = 0;
 		next_coord = s2w_start_posn;
 		if ((barrier[0] == true) ||
@@ -427,8 +428,11 @@ static void s2w_input_event(struct input_handle *handle, unsigned int type,
 	if (slot < 0 || slot >= S2W_MAX_SLOTS)
 		return;
 
-	if (s2w_scr_suspended)
+	if (s2w_scr_suspended) {
+		if (s2w_s2sonly)
+			return;
 		wake_lock_timeout(&s2w_wake_lock, HZ);
+	}
 	detect_sweep2wake(s2w_x[slot], s2w_y[slot], true);
 }
 
@@ -581,8 +585,7 @@ static ssize_t s2w_s2w_s2sonly_dump(struct kobject *kobj,
 		struct kobj_attribute *attr, const char *buf, size_t count)
 {
 	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n')
-                if (s2w_s2sonly != buf[0] - '0')
-		        s2w_s2sonly = buf[0] - '0';
+		s2w_s2sonly = buf[0] - '0';
 
 	return count;
 }
