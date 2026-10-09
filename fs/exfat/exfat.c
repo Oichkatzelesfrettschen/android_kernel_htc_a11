@@ -2225,7 +2225,7 @@ INT32 set_alloc_bitmap(struct super_block *sb, UINT32 clu)
 
 INT32 clr_alloc_bitmap(struct super_block *sb, UINT32 clu)
 {
-	INT32 i, b;
+	INT32 i, b, err;
 	UINT32 sector;
 #if EXFAT_CONFIG_DISCARD
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
@@ -2242,10 +2242,10 @@ INT32 clr_alloc_bitmap(struct super_block *sb, UINT32 clu)
 
 	Bitmap_clear((UINT8 *) p_fs->vol_amap[i]->b_data, b);
 
-	return (sector_write(sb, sector, p_fs->vol_amap[i], 0));
+	err = sector_write(sb, sector, p_fs->vol_amap[i], 0);
 
 #if EXFAT_CONFIG_DISCARD
-	if (opts->discard) {
+	if (err == FFS_SUCCESS && opts->discard) {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,37)
 		ret = sb_issue_discard(sb, START_SECTOR(clu), (1 << p_fs->sectors_per_clu_bits));
 #else
@@ -2257,6 +2257,8 @@ INT32 clr_alloc_bitmap(struct super_block *sb, UINT32 clu)
 		}
 	}
 #endif
+
+	return err;
 }
 
 UINT32 test_alloc_bitmap(struct super_block *sb, UINT32 clu)
