@@ -8,11 +8,13 @@
 #include <linux/input.h>
 #include <linux/input/wake_pwrkey.h>
 #include <linux/mutex.h>
+#include <linux/notifier.h>
 #include <linux/workqueue.h>
 
 #define WAKE_PWRKEY_DUR_MS	60
 
 static DEFINE_MUTEX(wake_pwrkey_lock);
+static BLOCKING_NOTIFIER_HEAD(wake_gesture_chain);
 static struct input_dev *wake_pwrkey_dev;
 static int wake_pwrkey_refs;
 
@@ -52,6 +54,21 @@ void wake_pwrkey_put(void)
 		wake_pwrkey_dev = NULL;
 	}
 	mutex_unlock(&wake_pwrkey_lock);
+}
+
+int wake_gesture_register_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&wake_gesture_chain, nb);
+}
+
+int wake_gesture_unregister_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&wake_gesture_chain, nb);
+}
+
+void wake_gesture_changed(void)
+{
+	blocking_notifier_call_chain(&wake_gesture_chain, 0, NULL);
 }
 
 /* Presses and releases KEY_POWER; sleeps, so it runs from process context. */

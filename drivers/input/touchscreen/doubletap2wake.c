@@ -342,6 +342,8 @@ static int dt2w_set_switch(int val)
 	if (!rc)
 		dt2w_switch = val;
 	mutex_unlock(&dt2w_switch_lock);
+	if (!rc)
+		wake_gesture_changed();
 	return rc;
 }
 

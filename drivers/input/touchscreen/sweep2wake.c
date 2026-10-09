@@ -565,6 +565,8 @@ static int s2w_set_switch(int val)
 	if (!rc)
 		s2w_switch = val;
 	mutex_unlock(&s2w_switch_lock);
+	if (!rc)
+		wake_gesture_changed();
 	return rc;
 }
 
@@ -593,8 +595,11 @@ static ssize_t s2w_s2w_s2sonly_show(struct kobject *kobj,
 static ssize_t s2w_s2w_s2sonly_dump(struct kobject *kobj,
 		struct kobj_attribute *attr, const char *buf, size_t count)
 {
-	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n')
+	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n' &&
+	    s2w_s2sonly != buf[0] - '0') {
 		s2w_s2sonly = buf[0] - '0';
+		wake_gesture_changed();
+	}
 
 	return count;
 }
