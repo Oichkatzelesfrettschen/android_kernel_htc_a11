@@ -291,6 +291,7 @@ static void frandom_cleanup_module(void)
 	device_destroy(frandom_class, frandom_devt);
 	cdev_del(&frandom_cdev);
 	unregister_chrdev_region(frandom_devt, NR_FRANDOM_DEVS);
+	class_destroy(frandom_class);
 
 	kfree(erandom_state->buf);
 	kfree(erandom_state);
@@ -367,6 +368,7 @@ static int frandom_init_module(void)
 		NULL, "frandom");
 
 	if (IS_ERR(frandom_device)) {
+		result = PTR_ERR(frandom_device);
 		pr_warn("frandom: Failed to create frandom device\n");
 		goto error3;
 	}
@@ -383,6 +385,7 @@ static int frandom_init_module(void)
 		NULL, "erandom");
 
 	if (IS_ERR(erandom_device)) {
+		result = PTR_ERR(erandom_device);
 		pr_warn("frandom: Failed to create erandom device\n");
 		goto error5;
 	}
