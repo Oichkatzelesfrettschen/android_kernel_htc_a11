@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 # SPDX-License-Identifier: GPL-2.0
-# Emit the linker script that places ThinLTO initcall sections in link order.
+# Emit the linker script that places LTO initcall sections in link order.
 #
 # Each input is a vmlinux object or archive in link order. Within one
 # archive member, initcalls keep their __COUNTER__ order; the output names

@@ -63,11 +63,11 @@ modulesymfile := $(firstword $(KBUILD_EXTMOD))/Module.symvers
 __modules := $(sort $(shell grep -h '\.ko' /dev/null $(wildcard $(MODVERDIR)/*.mod)))
 modules   := $(patsubst %.o,%.ko, $(wildcard $(__modules:.ko=.o)))
 
-# CONFIG_LTO_CLANG_THIN compiles module objects to bitcode, and only the
-# vmlinux prelink turns bitcode into native code.
-ifeq ($(CONFIG_LTO_CLANG_THIN),y)
+# CONFIG_LTO compiles module objects to IR and keeps composite objects as
+# thin archives, and only the vmlinux prelink turns IR into native code.
+ifeq ($(CONFIG_LTO),y)
 ifneq ($(modules),)
-$(error CONFIG_LTO_CLANG_THIN links vmlinux only; disable it to build $(notdir $(modules)))
+$(error CONFIG_LTO links vmlinux only; disable it to build $(notdir $(modules)))
 endif
 endif
 

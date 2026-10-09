@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 # SPDX-License-Identifier: GPL-2.0
-# Check the native ARM object that the ThinLTO prelink writes as vmlinux.o
+# Check the native ARM object that the LTO prelink writes as vmlinux.o
 # before modpost, kallsyms and the final vmlinux link consume it.
 #
 # The object must be an ARM EABI5 little-endian relocatable ELF32. Every

@@ -102,12 +102,12 @@ extern int initcall_debug;
 #ifndef __ASSEMBLY__
 
 
-#ifdef CONFIG_LTO_CLANG_THIN
+#ifdef CONFIG_LTO
 /*
  * Each initcall pointer gets its own section, named after the object
  * (__KBUILD_MODNAME from scripts/Makefile.lib), the per-file __COUNTER__
  * and the source line. scripts/generate-lto-initcall-order.pl reads these
- * names in link order and emits the linker script that the ThinLTO prelink
+ * names in link order and emits the linker script that the LTO prelink
  * uses to rebuild each .initcall*.init section in source link order.
  */
 #define ____initcall_name(mod,counter,line,fn,id) \
@@ -153,7 +153,7 @@ extern int initcall_debug;
 #define __exitcall(fn) \
 	static exitcall_t __exitcall_##fn __exit_call = fn
 
-#ifdef CONFIG_LTO_CLANG_THIN
+#ifdef CONFIG_LTO
 #define console_initcall(fn) \
 	___define_initcall_at(".con_initcall","",fn,con,__COUNTER__,__LINE__)
 

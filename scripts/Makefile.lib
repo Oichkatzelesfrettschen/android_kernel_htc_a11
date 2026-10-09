@@ -100,7 +100,7 @@ name-fix = $(subst $(comma),_,$(subst -,_,$1))
 basename_flags = -D"KBUILD_BASENAME=KBUILD_STR($(call name-fix,$(basetarget)))"
 modname_flags  = $(if $(filter 1,$(words $(modname))),\
                  -D"KBUILD_MODNAME=KBUILD_STR($(call name-fix,$(modname)))")
-ifeq ($(CONFIG_LTO_CLANG_THIN),y)
+ifeq ($(CONFIG_LTO),y)
 # include/linux/init.h names each initcall section after its object path.
 initcall-name-fix = $(subst /,_,$(subst .,_,$(call name-fix,$1)))
 modname_flags += -D__KBUILD_MODNAME=kmod_$(call initcall-name-fix,$(obj)/$(basetarget))

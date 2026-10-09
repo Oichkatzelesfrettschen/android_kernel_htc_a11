@@ -813,20 +813,22 @@ vmlinux-all  := $(vmlinux-init) $(vmlinux-main)
 vmlinux-lds  := arch/$(SRCARCH)/kernel/vmlinux.lds
 export KBUILD_VMLINUX_OBJS := $(vmlinux-all)
 
-ifeq ($(CONFIG_LTO_CLANG_THIN),y)
-# vmlinux.o is the one relocatable ThinLTO link of every vmlinux input, in
-# link order. modpost reads it, and kallsyms and the final vmlinux link use
-# its native code together with the kallsyms objects.
+ifeq ($(CONFIG_LTO),y)
+# vmlinux.o is the one relocatable LTO link of every vmlinux input, in link
+# order. modpost reads it, and kallsyms and the final vmlinux link use its
+# native code together with the kallsyms objects.
 vmlinux-native-inputs = $(vmlinux-init) --start-group \
 	$(foreach input,$(vmlinux-main),$(if $(filter %.a,$(input)),\
 	--no-whole-archive $(input) --whole-archive,$(input))) --end-group
 vmlinux-symversion-inputs = $(foreach input,$(vmlinux-all),$(input).symversions)
-thinlto-prelink-sources := $(srctree)/scripts/generate-lto-initcall-order.pl \
+lto-prelink-sources := $(srctree)/scripts/generate-lto-initcall-order.pl \
 	$(srctree)/scripts/validate-lto-prelink.pl
 quiet_cmd_vmlinux__ = LD      $@
       cmd_vmlinux__ = $(LD) $(LDFLAGS) $(LDFLAGS_vmlinux) -o $@ \
 	-T $(vmlinux-lds) vmlinux.o \
 	$(filter-out $(vmlinux-lds) $(vmlinux-init) $(vmlinux-main) vmlinux.o FORCE,$^)
+
+ifeq ($(CONFIG_LTO_CLANG_THIN),y)
 # A ThinLTO cache hit replays a module's native object without running its
 # codegen, so the diagnostics codegen raises (inline asm among them) never
 # print and --fatal-warnings has nothing to fail on. The cache is opt-in:
@@ -835,6 +837,9 @@ quiet_cmd_vmlinux__ = LD      $@
 # there and the directory once it is empty.
 thinlto-cache-flags := $(if $(KBUILD_THINLTO_CACHE),--thinlto-cache-dir=$(KBUILD_THINLTO_CACHE) \
 	--thinlto-cache-policy=cache_size_bytes=8589934592:cache_size_files=10000)
+lto-prelink-ld = $(LD) $(LDFLAGS) -r --fatal-warnings --thinlto-jobs=2 \
+	--mllvm=-import-instr-limit=5 $(thinlto-cache-flags)
+endif
 
 # The prelink applies every genksyms CRC script and the generated initcall
 # order script. genksyms writes no CRC for the per-CPU array export
@@ -852,8 +857,7 @@ quiet_cmd_vmlinux-modpost = LTO     $@
 	echo "__crc_softirq_work_list = 0 ;" >> vmlinux.symversions; \
 	NM=$(NM) $(PERL) $(srctree)/scripts/generate-lto-initcall-order.pl \
 		$(vmlinux-all) > vmlinux.initcalls.lds; \
-	$(LD) $(LDFLAGS) -r --fatal-warnings --thinlto-jobs=2 \
-		--mllvm=-import-instr-limit=5 $(thinlto-cache-flags) \
+	$(lto-prelink-ld) \
 		-T vmlinux.symversions -T vmlinux.initcalls.lds \
 		-o $@ --whole-archive $(vmlinux-native-inputs) --no-whole-archive; \
 	$(PERL) $(srctree)/scripts/validate-lto-prelink.pl $(READELF) $@ || \
@@ -891,7 +895,7 @@ quiet_cmd_sysmap = SYSMAP
 # First command is ':' to allow us to use + in front of the rule
 define rule_vmlinux__
 	:
-	$(if $(CONFIG_LTO_CLANG_THIN),,$(if $(CONFIG_KALLSYMS),,+$(call cmd,vmlinux_version)))
+	$(if $(CONFIG_LTO),,$(if $(CONFIG_KALLSYMS),,+$(call cmd,vmlinux_version)))
 
 	$(call cmd,vmlinux__)
 	$(Q)echo 'cmd_$@ := $(call make-cmd,vmlinux__)' > $(@D)/.$(@F).cmd
@@ -952,7 +956,7 @@ endef
 cmd_ksym_ld = $(cmd_vmlinux__)
 define rule_ksym_ld
 	: 
-	$(if $(CONFIG_LTO_CLANG_THIN),,+$(call cmd,vmlinux_version))
+	$(if $(CONFIG_LTO),,+$(call cmd,vmlinux_version))
 	$(call cmd,vmlinux__)
 	$(Q)echo 'cmd_$@ := $(call make-cmd,vmlinux__)' > $(@D)/.$(@F).cmd
 endef
@@ -996,9 +1000,9 @@ endif # ifdef CONFIG_KALLSYMS
 
 # Do modpost on a prelinked vmlinux. The finally linked vmlinux has
 # relevant sections renamed as per the linker script.
-# With CONFIG_LTO_CLANG_THIN, init/version.o enters the prelink, so the
+# With CONFIG_LTO, init/version.o enters the prelink, so the
 # version count advances before the prelink instead of before the final link.
-ifneq ($(CONFIG_LTO_CLANG_THIN),y)
+ifneq ($(CONFIG_LTO),y)
 quiet_cmd_vmlinux-modpost = LD      $@
       cmd_vmlinux-modpost = $(LD) $(LDFLAGS) -r -o $@                          \
 	 $(vmlinux-init) --start-group $(vmlinux-main) --end-group             \
@@ -1006,7 +1010,7 @@ quiet_cmd_vmlinux-modpost = LD      $@
 endif
 define rule_vmlinux-modpost
 	:
-	$(if $(CONFIG_LTO_CLANG_THIN),+$(call cmd,vmlinux_version))
+	$(if $(CONFIG_LTO),+$(call cmd,vmlinux_version))
 	+$(call cmd,vmlinux-modpost)
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modpost $@
 	$(Q)echo 'cmd_$@ := $(call make-cmd,vmlinux-modpost)' > $(dot-target).cmd
@@ -1032,9 +1036,9 @@ ifdef CONFIG_KALLSYMS
 .tmp_vmlinux1: vmlinux.o
 endif
 
-modpost-init := $(if $(CONFIG_LTO_CLANG_THIN),$(vmlinux-init),$(filter-out init/built-in.o, $(vmlinux-init)))
+modpost-init := $(if $(CONFIG_LTO),$(vmlinux-init),$(filter-out init/built-in.o, $(vmlinux-init)))
 vmlinux.o: $(modpost-init) $(vmlinux-main) \
-	$(if $(CONFIG_LTO_CLANG_THIN),$(thinlto-prelink-sources)) FORCE
+	$(if $(CONFIG_LTO),$(lto-prelink-sources)) FORCE
 	$(call if_changed_rule,vmlinux-modpost)
 
 # The actual objects are generated when descending, 
