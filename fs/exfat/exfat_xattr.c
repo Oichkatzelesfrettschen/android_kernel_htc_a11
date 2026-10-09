@@ -19,8 +19,11 @@ int exfat_setxattr(struct dentry *dentry, const char *name, const void *value, s
 ssize_t exfat_getxattr(struct dentry *dentry, const char *name, void *value, size_t size) {
 	if (!name || strcmp(name, "security.selinux"))
 		return -EOPNOTSUPP;
-	if (size > strlen(default_xattr)+1 && value)
-		strcpy(value, default_xattr);
+	if (!size)
+		return strlen(default_xattr);
+	if (size < strlen(default_xattr))
+		return -ERANGE;
+	memcpy(value, default_xattr, strlen(default_xattr));
 	return strlen(default_xattr);
 }
 
