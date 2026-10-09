@@ -459,7 +459,7 @@ static void s2w_sync_slots(struct input_dev *dev)
 
 /* The Himax HM852xD driver registers its touch input device under this name. */
 static int input_dev_filter(struct input_dev *dev) {
-	return strcmp(dev->name, "himax-touchscreen") ? 1 : 0;
+	return !dev->name || strcmp(dev->name, "himax-touchscreen") ? 1 : 0;
 }
 
 static int s2w_input_connect(struct input_handler *handler,
