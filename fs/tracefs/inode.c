@@ -134,14 +134,29 @@ static int tracefs_parse_options(char *data, struct tracefs_mount_opts *opts)
 	return 0;
 }
 
+static void tracefs_set_inode_owner(struct inode *inode,
+				    const struct tracefs_mount_opts *opts,
+				    unsigned int supplied)
+{
+	if (!inode)
+		return;
+	if (supplied & (1U << Opt_uid))
+		inode->i_uid = opts->uid;
+	if (supplied & (1U << Opt_gid))
+		inode->i_gid = opts->gid;
+}
+
 /*
- * Sets the group of every inode under @root. Tracing files exist before the
- * first userspace mount, so a gid= option reaches them only through this
- * walk. A child killed by dput() during the walk carries DCACHE_DISCONNECTED
- * once its parent's d_lock is free, and its d_u.d_child then holds an RCU
- * head, so the walk restarts from @root instead of following it.
+ * Sets the owner and group that @supplied names on every inode under @root.
+ * Tracing files exist before the first userspace mount, so a uid= or gid=
+ * option reaches them only through this walk. A child killed by dput()
+ * during the walk carries DCACHE_DISCONNECTED once its parent's d_lock is
+ * free, and its d_u.d_child then holds an RCU head, so the walk restarts
+ * from @root instead of following it.
  */
-static void tracefs_set_gid(struct dentry *root, gid_t gid)
+static void tracefs_set_owner(struct dentry *root,
+			      const struct tracefs_mount_opts *opts,
+			      unsigned int supplied)
 {
 	struct dentry *this_parent;
 	struct list_head *next;
@@ -149,8 +164,7 @@ static void tracefs_set_gid(struct dentry *root, gid_t gid)
 again:
 	this_parent = root;
 	spin_lock(&this_parent->d_lock);
-	if (this_parent->d_inode)
-		this_parent->d_inode->i_gid = gid;
+	tracefs_set_inode_owner(this_parent->d_inode, opts, supplied);
 repeat:
 	next = this_parent->d_subdirs.next;
 resume:
@@ -160,8 +174,7 @@ resume:
 
 		next = next->next;
 		spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
-		if (dentry->d_inode)
-			dentry->d_inode->i_gid = gid;
+		tracefs_set_inode_owner(dentry->d_inode, opts, supplied);
 		if (!list_empty(&dentry->d_subdirs)) {
 			spin_unlock(&this_parent->d_lock);
 			spin_release(&dentry->d_lock.dep_map, 1, _RET_IP_);
@@ -209,11 +222,8 @@ static void tracefs_apply_options(struct super_block *sb,
 		inode->i_mode |= opts->mode;
 	}
 
-	if (supplied & (1U << Opt_uid))
-		inode->i_uid = opts->uid;
-
-	if (supplied & (1U << Opt_gid))
-		tracefs_set_gid(sb->s_root, opts->gid);
+	if (supplied & ((1U << Opt_uid) | (1U << Opt_gid)))
+		tracefs_set_owner(sb->s_root, opts, supplied);
 }
 
 static int tracefs_remount(struct super_block *sb, int *flags, char *data)
