@@ -95,6 +95,22 @@ static const struct row_queue_params row_queues_def[] = {
 	{false, 3, false}	/* ROWQ_PRIO_LOW_SWRITE */
 };
 
+/*
+ * Dispatch quantums and read idling frequency applied by writing 1 to the
+ * tweak_profile attribute; indexed by enum row_queue_prio. Profile 0 is
+ * row_queues_def and ROW_READ_FREQ_MSEC.
+ */
+static const int row_tweak_quantum[ROWQ_MAX_PRIO] = {
+	100,	/* ROWQ_PRIO_HIGH_READ */
+	5,	/* ROWQ_PRIO_HIGH_SWRITE */
+	75,	/* ROWQ_PRIO_REG_READ */
+	4,	/* ROWQ_PRIO_REG_SWRITE */
+	4,	/* ROWQ_PRIO_REG_WRITE */
+	3,	/* ROWQ_PRIO_LOW_READ */
+	2	/* ROWQ_PRIO_LOW_SWRITE */
+};
+#define ROW_TWEAK_READ_FREQ_MSEC 25
+
 /* Default values for idling on read queues (in msec) */
 #define ROW_IDLE_TIME_MSEC 10
 #define ROW_READ_FREQ_MSEC 10
@@ -195,6 +211,7 @@ struct row_data {
 	struct row_queue row_queues[ROWQ_MAX_PRIO];
 
 	struct idling_data		rd_idle_data;
+	int				tweak_profile;
 	unsigned int			nr_reqs[2];
 	bool				urgent_in_flight;
 	struct request			*pending_urgent_rq;
@@ -821,6 +838,12 @@ static void *row_init_queue(struct request_queue *q)
 	 */
 	rdata->rd_idle_data.idle_time_ms = ROW_IDLE_TIME_MSEC;
 	rdata->rd_idle_data.freq_ms = ROW_READ_FREQ_MSEC;
+	if (IS_ENABLED(CONFIG_IOSCHED_ROW_TWEAK_DEFAULT)) {
+		for (i = 0; i < ROWQ_MAX_PRIO; i++)
+			rdata->row_queues[i].disp_quantum = row_tweak_quantum[i];
+		rdata->rd_idle_data.freq_ms = ROW_TWEAK_READ_FREQ_MSEC;
+		rdata->tweak_profile = 1;
+	}
 	hrtimer_init(&rdata->rd_idle_data.hr_timer,
 		CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	rdata->rd_idle_data.hr_timer.function = &row_idle_hrtimer_fn;
@@ -1039,6 +1062,40 @@ STORE_FUNCTION(row_low_starv_limit_store,
 
 #undef STORE_FUNCTION
 
+static ssize_t row_tweak_profile_show(struct elevator_queue *e, char *page)
+{
+	struct row_data *rowd = e->elevator_data;
+
+	return row_var_show(rowd->tweak_profile, page);
+}
+
+/*
+ * Writing 0 loads the row_queues_def quantums and ROW_READ_FREQ_MSEC; writing
+ * 1 loads row_tweak_quantum and ROW_TWEAK_READ_FREQ_MSEC. Either write
+ * overrides earlier writes to the individual quantum and rd_idle_data_freq
+ * attributes. elv_attr_store() holds e->sysfs_lock; the
+ * stores below are single aligned int writes, matching the sibling attributes.
+ */
+static ssize_t row_tweak_profile_store(struct elevator_queue *e,
+		const char *page, size_t count)
+{
+	struct row_data *rowd = e->elevator_data;
+	unsigned long profile;
+	int i;
+
+	if (kstrtoul(page, 10, &profile) || profile > 1)
+		return -EINVAL;
+
+	for (i = 0; i < ROWQ_MAX_PRIO; i++)
+		rowd->row_queues[i].disp_quantum = profile ?
+			row_tweak_quantum[i] : row_queues_def[i].quantum;
+	rowd->rd_idle_data.freq_ms = profile ?
+			ROW_TWEAK_READ_FREQ_MSEC : ROW_READ_FREQ_MSEC;
+	rowd->tweak_profile = profile;
+
+	return count;
+}
+
 #define ROW_ATTR(name) \
 	__ATTR(name, S_IRUGO|S_IWUSR, row_##name##_show, \
 				      row_##name##_store)
@@ -1055,6 +1112,7 @@ static struct elv_fs_entry row_attrs[] = {
 	ROW_ATTR(rd_idle_data_freq),
 	ROW_ATTR(reg_starv_limit),
 	ROW_ATTR(low_starv_limit),
+	ROW_ATTR(tweak_profile),
 	__ATTR_NULL
 };
 

@@ -113,6 +113,13 @@ Config options
    trigger idling. This is the time in Msec between inserting two READ
    requests. (default is 8 Msec)
 
+10. tweak_profile: 0 (default) keeps the quantums and read_idle_freq
+   listed above; 1 loads the tuned set (hp_read_quantum 100,
+   rp_swrite_quantum 4, rp_write_quantum 4, lp_read_quantum 3,
+   lp_swrite_quantum 2, read_idle_freq 25 Msec). A write replaces the
+   current values of those attributes; the scheduler starts at 0, or at 1
+   when CONFIG_IOSCHED_ROW_TWEAK_DEFAULT is set.
+
 Note: Dispatch quantum is number of requests that will be dispatched
 from a certain queue in a dispatch cycle.
 
