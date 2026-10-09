@@ -424,12 +424,20 @@ static int hidg_setup(struct usb_function *f,
 		  | USB_REQ_GET_DESCRIPTOR):
 		switch (value >> 8) {
 		case HID_DT_HID:
+		{
+			struct hid_descriptor hidg_desc_copy = hidg_desc;
+
 			VDBG(cdev, "USB_REQ_GET_DESCRIPTOR: HID\n");
+			hidg_desc_copy.desc[0].bDescriptorType = HID_DT_REPORT;
+			hidg_desc_copy.desc[0].wDescriptorLength =
+				cpu_to_le16(hidg->report_desc_length);
+
 			length = min_t(unsigned short, length,
-						   hidg_desc.bLength);
-			memcpy(req->buf, &hidg_desc, length);
+						   hidg_desc_copy.bLength);
+			memcpy(req->buf, &hidg_desc_copy, length);
 			goto respond;
 			break;
+		}
 		case HID_DT_REPORT:
 			VDBG(cdev, "USB_REQ_GET_DESCRIPTOR: REPORT\n");
 			length = min_t(unsigned short, length,
@@ -553,6 +561,11 @@ static int hidg_bind(struct usb_configuration *c, struct usb_function *f)
 	hidg_interface_desc.bInterfaceProtocol = hidg->bInterfaceProtocol;
 	hidg_hs_in_ep_desc.wMaxPacketSize = cpu_to_le16(hidg->report_length);
 	hidg_fs_in_ep_desc.wMaxPacketSize = cpu_to_le16(hidg->report_length);
+	/*
+	 * hidg_desc is a template every instance rewrites at bind. The
+	 * descriptor copies made below keep this instance's report descriptor
+	 * length; hidg_setup() builds HID_DT_HID from the instance itself.
+	 */
 	hidg_desc.desc[0].bDescriptorType = HID_DT_REPORT;
 	hidg_desc.desc[0].wDescriptorLength =
 		cpu_to_le16(hidg->report_desc_length);
