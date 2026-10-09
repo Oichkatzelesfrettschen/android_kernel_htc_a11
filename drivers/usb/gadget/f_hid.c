@@ -304,14 +304,14 @@ static unsigned int f_hidg_poll(struct file *file, poll_table *wait)
 
 	if (hacky_device_list_check(hidg)) {
 		pr_err("%s: trying to poll device %p that was destroyed\n", __func__, hidg);
-		return -EIO;
+		return POLLERR | POLLHUP;
 	}
 
 	poll_wait(file, &hidg->read_queue, wait);
 
 	if (hacky_device_list_check(hidg)) {
 		pr_err("%s: trying to poll device %p that was destroyed\n", __func__, hidg);
-		return -EIO;
+		return POLLERR | POLLHUP;
 	}
 
 	poll_wait(file, &hidg->write_queue, wait);
@@ -714,6 +714,11 @@ int ghid_setup(struct usb_gadget *g, int count)
 	dev_t dev;
 
 	hidg_class = class_create(THIS_MODULE, "hidg");
+	if (IS_ERR(hidg_class)) {
+		status = PTR_ERR(hidg_class);
+		hidg_class = NULL;
+		return status;
+	}
 
 	status = alloc_chrdev_region(&dev, 0, count, "hidg");
 	if (!status) {

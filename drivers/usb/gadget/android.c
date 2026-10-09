@@ -2851,7 +2851,18 @@ struct android_usb_function projector2_function = {
 
 static int hid_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
 {
-	return ghid_setup(cdev->gadget, 2);
+	int err = ghid_setup(cdev->gadget, 2);
+
+	/*
+	 * android_init_functions() fails the whole gadget bind on a function
+	 * init error. Without the character device region, hidg_bind_config()
+	 * returns -EINVAL for a configuration that selects hid, and every other
+	 * composition binds as before.
+	 */
+	if (err)
+		pr_err("%s: hid character devices unavailable (%d)\n",
+			__func__, err);
+	return 0;
 }
 
 static void hid_function_cleanup(struct android_usb_function *f)
