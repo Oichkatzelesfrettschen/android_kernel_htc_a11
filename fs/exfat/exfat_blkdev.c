@@ -166,8 +166,10 @@ INT32 bdev_reada(struct super_block *sb, UINT32 secno, UINT32 num_secs)
 
 	blk_start_plug(&plug);
 	for (i = 0; i < num_secs; i++) {
-		if (i && !(i & (sects_per_page - 1)))
-			blk_flush_plug_list(&plug, false);
+		if (i && !(i & (sects_per_page - 1))) {
+			blk_finish_plug(&plug);
+			blk_start_plug(&plug);
+		}
 		sb_breadahead(sb, secno + i);
 	}
 	blk_finish_plug(&plug);
