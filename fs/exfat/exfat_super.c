@@ -875,6 +875,7 @@ static int exfat_create(struct inode *dir, struct dentry *dentry, int mode,
 	inode = exfat_build_inode(sb, &fid, i_pos);
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
+		(void) FsRemoveFile(dir, &fid);
 		goto out;
 	}
 	inode->i_version++;
@@ -1113,6 +1114,7 @@ static int exfat_symlink(struct inode *dir, struct dentry *dentry, const char *t
 	inode = exfat_build_inode(sb, &fid, i_pos);
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
+		(void) FsRemoveFile(dir, &fid);
 		goto out;
 	}
 	inode->i_version++;
@@ -1120,6 +1122,7 @@ static int exfat_symlink(struct inode *dir, struct dentry *dentry, const char *t
 
 	EXFAT_I(inode)->target = MALLOC(len+1);
 	if (!EXFAT_I(inode)->target) {
+		iput(inode);
 		err = -ENOMEM;
 		goto out;
 	}
@@ -1184,6 +1187,8 @@ static int exfat_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	inode = exfat_build_inode(sb, &fid, i_pos);
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
+		(void) FsRemoveDir(dir, &fid);
+		drop_nlink(dir);
 		goto out;
 	}
 	inode->i_version++;
