@@ -280,6 +280,8 @@ static int exfat_sync_inode(struct inode *inode);
 static struct inode *exfat_build_inode(struct super_block *sb, FILE_ID_T *fid, loff_t i_pos);
 static void exfat_detach(struct inode *inode);
 static void exfat_attach(struct inode *inode, loff_t i_pos);
+static int parse_options(char *options, int silent, int *debug,
+			 struct exfat_mount_options *opts, const char *keep);
 static inline unsigned long exfat_hash(loff_t i_pos);
 static int exfat_write_inode(struct inode *inode, struct writeback_control *wbc);
 static void exfat_write_super(struct super_block *sb);
@@ -2229,9 +2231,64 @@ static int exfat_statfs(struct dentry *dentry, struct kstatfs *buf)
 	return 0;
 }
 
+/*
+ * A remount accepts an option string only when every token restates the
+ * live value: the mount options feed inode ownership, permission masks and
+ * the name codec, none of which can change under cached inodes and dentries.
+ */
+static int exfat_remount_options(struct super_block *sb, char *data)
+{
+	struct exfat_sb_info *sbi = EXFAT_SB(sb);
+	struct exfat_mount_options *cur = &sbi->options;
+	struct exfat_mount_options opts = *cur;
+	char *copy;
+	int debug, err, same;
+
+	if (!data || !*data)
+		return 0;
+
+	copy = kstrdup(data, GFP_KERNEL);
+	if (!copy)
+		return -ENOMEM;
+
+	err = parse_options(copy, 1, &debug, &opts, cur->iocharset);
+	if (!err) {
+		same = uid_eq(opts.fs_uid, cur->fs_uid) &&
+		       gid_eq(opts.fs_gid, cur->fs_gid) &&
+		       opts.fs_fmask == cur->fs_fmask &&
+		       opts.fs_dmask == cur->fs_dmask &&
+		       opts.allow_utime == cur->allow_utime &&
+		       opts.codepage == cur->codepage &&
+		       opts.casesensitive == cur->casesensitive &&
+		       opts.tz_utc == cur->tz_utc &&
+		       opts.errors == cur->errors &&
+#if EXFAT_CONFIG_DISCARD
+		       opts.discard == cur->discard &&
+#endif
+		       !strcmp(opts.iocharset, cur->iocharset);
+		if (!same)
+			err = -EINVAL;
+	}
+	if (opts.iocharset != cur->iocharset &&
+	    opts.iocharset != exfat_default_iocharset)
+		kfree(opts.iocharset);
+	kfree(copy);
+
+	return err;
+}
+
 static int exfat_remount(struct super_block *sb, int *flags, char *data)
 {
-	char *orig_data = kstrdup(data, GFP_KERNEL);
+	char *orig_data;
+	int err;
+
+	err = exfat_remount_options(sb, data);
+	if (err) {
+		exfat_msg(sb, KERN_ERR, "remount cannot change mount options");
+		return err;
+	}
+
+	orig_data = kstrdup(data, GFP_KERNEL);
 	*flags |= MS_NODIRATIME;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,16,00)
@@ -2350,26 +2407,35 @@ static const match_table_t exfat_tokens = {
 	{Opt_err, NULL}
 };
 
+/*
+ * parse_options() fills OPTS from OPTIONS. A mount starts from the defaults
+ * (KEEP == NULL); a remount passes the superblock's live options as OPTS
+ * with KEEP set to the live iocharset string, which the parser must not free
+ * when an iocharset= token replaces it.
+ */
 static int parse_options(char *options, int silent, int *debug,
-						 struct exfat_mount_options *opts)
+						 struct exfat_mount_options *opts,
+						 const char *keep)
 {
 	char *p;
 	substring_t args[MAX_OPT_ARGS];
 	int option;
 	char *iocharset;
 
-	opts->fs_uid = current_uid();
-	opts->fs_gid = current_gid();
-	opts->fs_fmask = opts->fs_dmask = current->fs->umask;
-	opts->allow_utime = (unsigned short) -1;
-	opts->codepage = exfat_default_codepage;
-	opts->iocharset = exfat_default_iocharset;
-	opts->casesensitive = 0;
-	opts->tz_utc = 0;
-	opts->errors = EXFAT_ERRORS_RO;
+	if (!keep) {
+		opts->fs_uid = current_uid();
+		opts->fs_gid = current_gid();
+		opts->fs_fmask = opts->fs_dmask = current->fs->umask;
+		opts->allow_utime = (unsigned short) -1;
+		opts->codepage = exfat_default_codepage;
+		opts->iocharset = exfat_default_iocharset;
+		opts->casesensitive = 0;
+		opts->tz_utc = 0;
+		opts->errors = EXFAT_ERRORS_RO;
 #if EXFAT_CONFIG_DISCARD
-	opts->discard = 0;
+		opts->discard = 0;
 #endif
+	}
 	*debug = 0;
 
 	if (!options)
@@ -2384,19 +2450,19 @@ static int parse_options(char *options, int silent, int *debug,
 		switch (token) {
 		case Opt_uid:
 			if (match_int(&args[0], &option))
-				return 0;
+				return -EINVAL;
 			opts->fs_uid = make_kuid(current_user_ns(), option);
 			break;
 		case Opt_gid:
 			if (match_int(&args[0], &option))
-				return 0;
+				return -EINVAL;
 			opts->fs_gid = make_kgid(current_user_ns(), option);
 			break;
 		case Opt_umask:
 		case Opt_dmask:
 		case Opt_fmask:
 			if (match_octal(&args[0], &option))
-				return 0;
+				return -EINVAL;
 			if (token != Opt_dmask)
 				opts->fs_fmask = option;
 			if (token != Opt_fmask)
@@ -2404,16 +2470,17 @@ static int parse_options(char *options, int silent, int *debug,
 			break;
 		case Opt_allow_utime:
 			if (match_octal(&args[0], &option))
-				return 0;
+				return -EINVAL;
 			opts->allow_utime = option & (S_IWGRP | S_IWOTH);
 			break;
 		case Opt_codepage:
 			if (match_int(&args[0], &option))
-				return 0;
+				return -EINVAL;
 			opts->codepage = option;
 			break;
 		case Opt_charset:
-			if (opts->iocharset != exfat_default_iocharset)
+			if (opts->iocharset != exfat_default_iocharset &&
+			    opts->iocharset != keep)
 				kfree(opts->iocharset);
 			iocharset = match_strdup(&args[0]);
 			if (!iocharset)
@@ -2422,7 +2489,7 @@ static int parse_options(char *options, int silent, int *debug,
 			break;
 		case Opt_namecase:
 			if (match_int(&args[0], &option))
-				return 0;
+				return -EINVAL;
 			opts->casesensitive = option;
 			break;
 		case Opt_tz_utc:
@@ -2556,7 +2623,7 @@ static int exfat_fill_super(struct super_block *sb, void *data, int silent)
 	sb->s_magic = EXFAT_SUPER_MAGIC;
 	sb->s_op = &exfat_sops;
 
-	error = parse_options(data, silent, &debug, &sbi->options);
+	error = parse_options(data, silent, &debug, &sbi->options, NULL);
 	if (error)
 		goto out_fail;
 
