@@ -51,6 +51,10 @@ struct dentry *debugfs_create_file(const char *name, umode_t mode,
 				   const struct file_operations *fops);
 
 struct dentry *debugfs_create_dir(const char *name, struct dentry *parent);
+struct dentry *debugfs_create_automount(const char *name,
+					       struct dentry *parent,
+					       struct vfsmount *(*mount)(void *),
+					       void *data);
 
 struct dentry *debugfs_create_symlink(const char *name, struct dentry *parent,
 				      const char *dest);
@@ -114,6 +118,13 @@ static inline struct dentry *debugfs_create_file(const char *name, umode_t mode,
 
 static inline struct dentry *debugfs_create_dir(const char *name,
 						struct dentry *parent)
+{
+	return ERR_PTR(-ENODEV);
+}
+
+static inline struct dentry *debugfs_create_automount(
+		const char *name, struct dentry *parent,
+		struct vfsmount *(*mount)(void *), void *data)
 {
 	return ERR_PTR(-ENODEV);
 }

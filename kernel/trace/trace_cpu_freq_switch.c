@@ -18,6 +18,7 @@
 #include <linux/rbtree.h>
 #include <linux/hrtimer.h>
 #include <linux/debugfs.h>
+#include <linux/tracefs.h>
 #include <linux/ktime.h>
 #include <trace/events/power.h>
 #include "trace_stat.h"
@@ -303,7 +304,7 @@ static int __init trace_freq_switch_init(void)
 	if (!d_tracer)
 		return 0;
 
-	debugfs_create_file("cpu_freq_switch_profile_enabled",
+	tracefs_create_file("cpu_freq_switch_profile_enabled",
 		S_IRUGO | S_IWUSR, d_tracer, NULL, &debug_tracing_state_fops);
 
 	return 0;

@@ -132,6 +132,34 @@ DEFINE_EVENT(sched_wakeup_template, sched_wakeup_new,
 	     TP_PROTO(struct task_struct *p, int success),
 	     TP_ARGS(p, success));
 
+TRACE_EVENT(sched_waking,
+
+	TP_PROTO(struct task_struct *p),
+
+	TP_ARGS(p),
+
+	TP_STRUCT__entry(
+		__array( char, comm, TASK_COMM_LEN )
+		__field( pid_t, pid )
+		__field( int, prio )
+		__field( int, target_cpu )
+	),
+
+	TP_fast_assign(
+		memcpy(__entry->comm, p->comm, TASK_COMM_LEN);
+		__entry->pid = p->pid;
+		__entry->prio = p->prio;
+		__entry->target_cpu = task_cpu(p);
+	)
+	TP_perf_assign(
+		__perf_task(p);
+	),
+
+	TP_printk("comm=%s pid=%d prio=%d target_cpu=%03d",
+		  __entry->comm, __entry->pid, __entry->prio,
+		  __entry->target_cpu)
+);
+
 #ifdef CREATE_TRACE_POINTS
 static inline long __trace_sched_switch_state(struct task_struct *p)
 {

@@ -244,6 +244,30 @@ static const struct super_operations debugfs_super_operations = {
 	.show_options	= debugfs_show_options,
 };
 
+static int debugfs_delete_dentry(const struct dentry *dentry)
+{
+	return 1;
+}
+
+static struct vfsmount *debugfs_automount(struct path *path)
+{
+	struct vfsmount *(*f)(void *);
+
+	f = (struct vfsmount *(*)(void *))path->dentry->d_fsdata;
+	return f(path->dentry->d_inode->i_private);
+}
+
+/*
+ * d_alloc() installs these on every debugfs dentry and simple_lookup() keeps
+ * them. d_delete drops a dentry at its last dput(), as libfs's
+ * simple_dentry_operations does; d_automount runs only for a dentry whose
+ * inode carries S_AUTOMOUNT.
+ */
+static const struct dentry_operations debugfs_dops = {
+	.d_delete	= debugfs_delete_dentry,
+	.d_automount	= debugfs_automount,
+};
+
 static int debug_fill_super(struct super_block *sb, void *data, int silent)
 {
 	static struct tree_descr debug_files[] = {{""}};
@@ -268,6 +292,7 @@ static int debug_fill_super(struct super_block *sb, void *data, int silent)
 		goto fail;
 
 	sb->s_op = &debugfs_super_operations;
+	sb->s_d_op = &debugfs_dops;
 
 	debugfs_apply_options(sb);
 
@@ -412,6 +437,73 @@ struct dentry *debugfs_create_dir(const char *name, struct dentry *parent)
 				   parent, NULL, NULL);
 }
 EXPORT_SYMBOL_GPL(debugfs_create_dir);
+
+/**
+ * debugfs_create_automount - create automount point in the debugfs filesystem
+ * @name: a pointer to a string containing the name of the file to create.
+ * @parent: a pointer to the parent dentry for this file.  This should be a
+ *          directory dentry if set.  If this parameter is NULL, then the
+ *          file will be created in the root of the debugfs filesystem.
+ * @f: function to be called when pathname resolution steps on that one.
+ * @data: opaque argument to pass to f().
+ *
+ * @f should return what ->d_automount() would.
+ *
+ * The directory inode carries S_AUTOMOUNT before d_instantiate(), which is
+ * where the dentry gains DCACHE_NEED_AUTOMOUNT; follow_managed() then calls
+ * debugfs_automount() through the superblock's s_d_op.
+ */
+struct dentry *debugfs_create_automount(const char *name,
+					struct dentry *parent,
+					struct vfsmount *(*f)(void *),
+					void *data)
+{
+	struct dentry *dentry;
+	struct inode *inode;
+	int error;
+
+	if (!f)
+		return ERR_PTR(-EINVAL);
+
+	error = simple_pin_fs(&debug_fs_type, &debugfs_mount,
+			      &debugfs_mount_count);
+	if (error)
+		return NULL;
+
+	if (!parent)
+		parent = debugfs_mount->mnt_root;
+
+	mutex_lock(&parent->d_inode->i_mutex);
+	dentry = lookup_one_len(name, parent, strlen(name));
+	if (IS_ERR(dentry))
+		goto fail_unlock;
+	if (dentry->d_inode)
+		goto fail_dput;
+
+	inode = debugfs_get_inode(parent->d_inode->i_sb,
+				  S_IFDIR | S_IRWXU | S_IRUGO | S_IXUGO, 0,
+				  data, NULL);
+	if (!inode)
+		goto fail_dput;
+
+	inode->i_flags |= S_AUTOMOUNT;
+	dentry->d_fsdata = (void *)f;
+	d_instantiate(dentry, inode);
+	inc_nlink(parent->d_inode);
+	fsnotify_mkdir(parent->d_inode, dentry);
+	mutex_unlock(&parent->d_inode->i_mutex);
+
+	/* The lookup reference pins the dentry, as dget() in debugfs_mknod(). */
+	return dentry;
+
+fail_dput:
+	dput(dentry);
+fail_unlock:
+	mutex_unlock(&parent->d_inode->i_mutex);
+	simple_release_fs(&debugfs_mount, &debugfs_mount_count);
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(debugfs_create_automount);
 
 /**
  * debugfs_create_symlink- create a symbolic link in the debugfs filesystem
@@ -688,4 +780,3 @@ static int __init debugfs_init(void)
 	return retval;
 }
 core_initcall(debugfs_init);
-
