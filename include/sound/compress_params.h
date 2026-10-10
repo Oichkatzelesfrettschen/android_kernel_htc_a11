@@ -307,6 +307,9 @@ struct snd_dec_ape {
 	__u32 sample_rate;
 	__u32 seek_table_present;
 };
+struct snd_dec_vorbis {
+	__u32 bit_stream_fmt;
+};
 struct snd_dec_amrwbplus {
 	__u32 bit_stream_fmt;
 };
@@ -322,6 +325,7 @@ union snd_codec_options {
 	struct snd_dec_alac alac;
 	struct snd_dec_ape ape;
 	struct snd_dec_amrwbplus amrwbplus;
+	struct snd_dec_vorbis vorbis_dec;
 };
 
 

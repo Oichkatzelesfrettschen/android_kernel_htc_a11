@@ -1927,6 +1927,9 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 	case FORMAT_FLAC:
 		open.dec_fmt_id = ASM_MEDIA_FMT_FLAC;
 		break;
+	case FORMAT_VORBIS:
+		open.dec_fmt_id = ASM_MEDIA_FMT_VORBIS;
+		break;
 	case FORMAT_ALAC:
 		open.dec_fmt_id = ASM_MEDIA_FMT_ALAC;
 		break;
@@ -3058,6 +3061,23 @@ int q6asm_stream_media_format_block_flac(struct audio_client *ac,
 	fmt.min_frame_size = cfg->min_frame_size;
 	fmt.max_frame_size = cfg->max_frame_size;
 	fmt.sample_size = cfg->sample_size;
+
+	return q6asm_stream_fmt_update(ac, &fmt.hdr, stream_id, __func__);
+}
+
+int q6asm_stream_media_format_block_vorbis(struct audio_client *ac,
+				struct asm_vorbis_cfg *cfg, int stream_id)
+{
+	struct asm_vorbis_fmt_blk_v2 fmt;
+
+	pr_debug("%s: session[%d] bit_stream_fmt[%d] stream_id[%d]\n",
+		 __func__, ac->session, cfg->bit_stream_fmt, stream_id);
+
+	memset(&fmt, 0, sizeof(fmt));
+	q6asm_stream_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE, stream_id);
+	fmt.fmtblk.fmt_blk_size = sizeof(fmt) - sizeof(fmt.hdr) -
+				  sizeof(fmt.fmtblk);
+	fmt.bit_stream_fmt = cfg->bit_stream_fmt;
 
 	return q6asm_stream_fmt_update(ac, &fmt.hdr, stream_id, __func__);
 }

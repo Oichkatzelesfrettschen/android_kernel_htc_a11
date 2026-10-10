@@ -490,6 +490,7 @@ static void populate_codec_list(struct msm_compr_audio *prtd)
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_EAC3);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_MP2);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_FLAC);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_VORBIS);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_ALAC);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_APE);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_WMA);
@@ -531,6 +532,7 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 	struct asm_wma_cfg wma_cfg;
 	struct asm_wmapro_cfg wma_pro_cfg;
 	struct asm_amrwbplus_cfg amrwbplus_cfg;
+	struct asm_vorbis_cfg vorbis_cfg;
 	const union snd_codec_options *opts = &prtd->codec_param.codec.options;
 	int ret = 0;
 
@@ -625,6 +627,15 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 		amrwbplus_cfg.amr_frame_fmt = opts->amrwbplus.bit_stream_fmt;
 		ret = q6asm_stream_media_format_block_amrwbplus(
 				prtd->audio_client, &amrwbplus_cfg, stream_id);
+		if (ret < 0)
+			pr_err("%s: CMD Format block failed ret %d\n",
+			       __func__, ret);
+		break;
+	case FORMAT_VORBIS:
+		memset(&vorbis_cfg, 0x0, sizeof(struct asm_vorbis_cfg));
+		vorbis_cfg.bit_stream_fmt = opts->vorbis_dec.bit_stream_fmt;
+		ret = q6asm_stream_media_format_block_vorbis(
+				prtd->audio_client, &vorbis_cfg, stream_id);
 		if (ret < 0)
 			pr_err("%s: CMD Format block failed ret %d\n",
 			       __func__, ret);
@@ -1102,6 +1113,12 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 	case SND_AUDIOCODEC_EVRC: {
 		pr_debug("SND_AUDIOCODEC_EVRC\n");
 		prtd->codec = FORMAT_EVRC;
+		break;
+	}
+
+	case SND_AUDIOCODEC_VORBIS: {
+		pr_debug("SND_AUDIOCODEC_VORBIS\n");
+		prtd->codec = FORMAT_VORBIS;
 		break;
 	}
 
@@ -1821,6 +1838,15 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 		codec->descriptor[0].profiles = 0;
 		codec->descriptor[0].modes = 0;
 		codec->descriptor[0].formats = SND_AUDIOSTREAMFORMAT_FLAC;
+		break;
+	case SND_AUDIOCODEC_VORBIS:
+		codec->num_descriptors = 1;
+		codec->descriptor[0].max_ch = 2;
+		codec->descriptor[0].sample_rates = SNDRV_PCM_RATE_8000_48000;
+		codec->descriptor[0].num_bitrates = 0;
+		codec->descriptor[0].profiles = SND_AUDIOPROFILE_VORBIS;
+		codec->descriptor[0].modes = SND_AUDIOMODE_VORBIS;
+		codec->descriptor[0].formats = 0;
 		break;
 	case SND_AUDIOCODEC_AMR:
 	case SND_AUDIOCODEC_QCELP:

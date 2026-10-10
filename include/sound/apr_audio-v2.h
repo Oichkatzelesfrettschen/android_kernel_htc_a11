@@ -2432,6 +2432,10 @@ struct asm_flac_cfg {
 	u16 md5_sum;
 };
 
+struct asm_vorbis_cfg {
+	u32 bit_stream_fmt;
+};
+
 struct asm_alac_cfg {
 	u32 frame_length;
 	u8 compatible_version;
@@ -3197,6 +3201,20 @@ struct asm_wmastdv8_enc_cfg {
 
 /* FLAC decoder media format. */
 #define ASM_MEDIA_FMT_FLAC                         0x00010C16
+
+/* Vorbis decoder media format. */
+#define ASM_MEDIA_FMT_VORBIS                       0x00010C15
+
+struct asm_vorbis_fmt_blk_v2 {
+	struct apr_hdr hdr;
+	struct asm_data_cmd_media_fmt_update_v2 fmtblk;
+	u32          bit_stream_fmt;
+/* Bit stream format. Supported values:
+ * - 0 -- Raw bitstream
+ * - 1 -- Transcoded bitstream, with the frame size as the first word of
+ *        each frame
+ */
+} __packed;
 
 /* Apple Lossless and Monkey's Audio decoder media formats. */
 #define ASM_MEDIA_FMT_ALAC                         0x00012F31

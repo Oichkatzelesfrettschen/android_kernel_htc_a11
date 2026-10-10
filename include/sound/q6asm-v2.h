@@ -47,6 +47,7 @@
 #define FORMAT_MP2          0x0015
 #define FORMAT_FLAC         0x0016
 #define FORMAT_ALAC         0x0017
+#define FORMAT_VORBIS       0x0018
 #define FORMAT_APE          0x0019
 
 #define ENCDEC_SBCBITRATE   0x0001
@@ -370,6 +371,9 @@ int q6asm_stream_media_format_block_amrwbplus(struct audio_client *ac,
 
 int q6asm_stream_media_format_block_flac(struct audio_client *ac,
 			struct asm_flac_cfg *cfg, int stream_id);
+
+int q6asm_stream_media_format_block_vorbis(struct audio_client *ac,
+			struct asm_vorbis_cfg *cfg, int stream_id);
 
 int q6asm_stream_media_format_block_alac(struct audio_client *ac,
 			struct asm_alac_cfg *cfg, int stream_id);
