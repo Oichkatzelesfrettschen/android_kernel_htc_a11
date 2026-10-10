@@ -130,6 +130,8 @@ struct msm_compr_audio {
 
 	uint16_t session_id;
 	uint16_t bits_per_sample;
+	/* Sample width the client writes to a PCM stream (16, or 24 in 32 bits). */
+	uint16_t pcm_bits;
 	int32_t write_last_buffer;
 	atomic_t drain_done_pendding;
 	uint64_t lasttimestamp;
@@ -691,7 +693,7 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 				prtd->sample_rate, prtd->num_channels);
 		ret = q6asm_media_format_block_pcm_format_support(
 			prtd->audio_client, prtd->sample_rate,
-			prtd->num_channels, prtd->bits_per_sample);
+			prtd->num_channels, prtd->pcm_bits);
 
 		if (ret < 0)
 			pr_err("PCM Format block failed = %d\n", ret);
@@ -863,6 +865,7 @@ static int msm_compr_open(struct snd_compr_stream *cstream)
 	prtd->num_channels = 2;
 #ifdef CONFIG_HD_AUDIO
 	prtd->bits_per_sample = 16;
+	prtd->pcm_bits = 16;
 #endif
 	prtd->drain_ready = 0;
 	prtd->last_buffer = 0;
@@ -1164,10 +1167,27 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 
 #ifdef CONFIG_HD_AUDIO
 	case SND_AUDIOCODEC_PCM: {
-		pr_err("SND_AUDIOCODEC_PCM format = %d\n",
+		pr_debug("SND_AUDIOCODEC_PCM format = %d\n",
 				prtd->codec_param.codec.format);
 		prtd->codec = FORMAT_LINEAR_PCM;
-		prtd->bits_per_sample = prtd->codec_param.codec.format;
+		/*
+		 * The multichannel PCM media format block names 16 or 24 bits
+		 * per sample and carries 24 bits in a 32-bit word, which is
+		 * SNDRV_PCM_FORMAT_S24_LE. Packed 24-bit words need the V3
+		 * block, which this driver does not send.
+		 */
+		switch (prtd->codec_param.codec.format) {
+		case SNDRV_PCM_FORMAT_S16_LE:
+			prtd->pcm_bits = 16;
+			break;
+		case SNDRV_PCM_FORMAT_S24_LE:
+			prtd->pcm_bits = 24;
+			break;
+		default:
+			pr_err("PCM sample format %d not supported\n",
+				prtd->codec_param.codec.format);
+			return -EINVAL;
+		}
 		break;
 	}
 #endif
