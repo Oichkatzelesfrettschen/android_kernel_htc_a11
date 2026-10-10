@@ -632,7 +632,7 @@ static ssize_t show_update_rate(struct device *dev,
 				struct device_attribute *msm_hotplug_attrs,
 				char *buf)
 {
-	return sprintf(buf, "%u\n", stats.update_rate);
+	return sprintf(buf, "%u\n", jiffies_to_msecs(stats.update_rate));
 }
 
 static ssize_t store_update_rate(struct device *dev,
@@ -646,7 +646,7 @@ static ssize_t store_update_rate(struct device *dev,
 	if (ret != 1)
 		return -EINVAL;
 
-	stats.update_rate = val;
+	stats.update_rate = msecs_to_jiffies(val);
 
 	return count;
 }
