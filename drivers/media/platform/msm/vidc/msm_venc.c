@@ -1064,6 +1064,11 @@ static int msm_venc_toggle_hier_p(struct msm_vidc_inst *inst, bool enable)
 	if (inst->fmts[CAPTURE_PORT]->fourcc != V4L2_PIX_FMT_VP8)
 		return 0;
 
+	if (enable && !inst->capability.hier_p.max) {
+		dprintk(VIDC_ERR, "f/w reports no Hier-P layers\n");
+		return -ENOTSUPP;
+	}
+
 	/* HFI_CAPABILITY_HIER_P_NUM_ENH_LAYERS reports the maximum number of
 	 * enhancement layers, so the firmware maximum is that count. */
 	num_enh_layers = enable ? inst->capability.hier_p.max : 0;
