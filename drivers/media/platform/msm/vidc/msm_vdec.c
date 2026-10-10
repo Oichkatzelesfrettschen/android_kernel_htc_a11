@@ -1573,6 +1573,9 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	struct hal_extradata_enable extra;
 	struct hal_buffer_alloc_mode alloc_mode;
 	struct hal_multi_stream multi_stream;
+	/* Port whose tracked buffer mode follows a successful
+	 * HAL_PARAM_BUFFER_ALLOC_MODE; -1 when the control sets no mode. */
+	int mode_port = -1;
 
 	if (!inst || !inst->core || !inst->core->device) {
 		dprintk(VIDC_ERR, "%s invalid parameters", __func__);
@@ -1674,7 +1677,7 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 				HAL_BUFFER_MODE_STATIC)
 			break;
 		property_id = HAL_PARAM_BUFFER_ALLOC_MODE;
-		inst->buffer_mode_set[OUTPUT_PORT] = alloc_mode.buffer_mode;
+		mode_port = OUTPUT_PORT;
 		pdata = &alloc_mode;
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_FRAME_ASSEMBLY:
@@ -1708,7 +1711,7 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 			break;
 		property_id = HAL_PARAM_BUFFER_ALLOC_MODE;
 		pdata = &alloc_mode;
-		inst->buffer_mode_set[CAPTURE_PORT] = alloc_mode.buffer_mode;
+		mode_port = CAPTURE_PORT;
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_STREAM_OUTPUT_MODE:
 		if (ctrl->val && !(inst->capability.pixelprocess_capabilities &
@@ -1804,6 +1807,11 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 			property_id, ctrl->id, ctrl->val);
 			rc = call_hfi_op(hdev, session_set_property, (void *)
 				inst->session, property_id, pdata);
+		/* The tracked mode changes only once the firmware accepted it,
+		 * so a failed transition is retried by the next request. */
+		if (!rc && mode_port >= 0)
+			inst->buffer_mode_set[mode_port] =
+				alloc_mode.buffer_mode;
 	}
 
 	return rc;
