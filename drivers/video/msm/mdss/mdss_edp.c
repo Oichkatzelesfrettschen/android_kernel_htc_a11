@@ -321,7 +321,8 @@ int mdss_edp_wait4train(struct mdss_panel_data *pdata)
 	edp_drv = container_of(pdata, struct mdss_edp_drv_pdata,
 			panel_data);
 
-	ret = wait_for_completion_timeout(&edp_drv->train_comp, 100);
+	ret = wait_for_completion_timeout(&edp_drv->train_comp,
+					msecs_to_jiffies(1000));
 	if (ret <= 0) {
 		pr_err("%s: Link Train timedout\n", __func__);
 		ret = -EINVAL;
