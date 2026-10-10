@@ -304,6 +304,8 @@ int q6asm_set_encdec_chan_map(struct audio_client *ac,
 int q6asm_enc_cfg_blk_pcm_native(struct audio_client *ac,
 			uint32_t rate, uint32_t channels);
 
+bool q6asm_pcm_channels_supported(uint32_t channels);
+
 int q6asm_enable_sbrps(struct audio_client *ac,
 			uint32_t sbr_ps);
 

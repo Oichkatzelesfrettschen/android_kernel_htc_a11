@@ -343,14 +343,31 @@ long audio_in_ioctl(struct file *file,
 			rc = -EACCES;
 			break;
 		}
+		/* Zero rate or channel count leaves the encoder's configured
+		 * input format in place; a nonzero channel count must have a
+		 * q6asm channel map. */
+		if (cfg.channel_count &&
+		    !q6asm_pcm_channels_supported(cfg.channel_count)) {
+			pr_err("%s:session id %d: unsupported channel_count %u\n",
+					__func__, audio->ac->session,
+					cfg.channel_count);
+			rc = -EINVAL;
+			break;
+		}
 		if ((cfg.buffer_count > PCM_BUF_COUNT) ||
 				(cfg.buffer_count == 1))
 			cfg.buffer_count = PCM_BUF_COUNT;
 
 		audio->pcm_cfg.buffer_count = cfg.buffer_count;
 		audio->pcm_cfg.buffer_size  = cfg.buffer_size;
-		audio->pcm_cfg.channel_count = cfg.channel_count;
-		audio->pcm_cfg.sample_rate = cfg.sample_rate;
+		if (cfg.channel_count) {
+			audio->pcm_cfg.channel_count = cfg.channel_count;
+			audio->pcm_channels_explicit = true;
+		}
+		if (cfg.sample_rate) {
+			audio->pcm_cfg.sample_rate = cfg.sample_rate;
+			audio->pcm_rate_explicit = true;
+		}
 		if(audio->opened && audio->feedback == NON_TUNNEL_MODE){
 			rc = q6asm_audio_client_buf_alloc(IN, audio->ac,
 				ALIGN_BUF_SIZE(audio->pcm_cfg.buffer_size),

@@ -43,8 +43,8 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			/* Configure PCM output block: the decoder emits its
 			 * native rate and channel count, and the channel map
 			 * is built for the channel count the client set
-			 * through AUDIO_SET_STREAM_CONFIG (q6asm_map_channels
-			 * rejects zero). */
+			 * through AUDIO_SET_CONFIG (an unmappable count is
+			 * rejected by q6asm_enc_cfg_blk_pcm_native). */
 			rc = q6asm_enc_cfg_blk_pcm_native(audio->ac,
 					audio->pcm_cfg.sample_rate,
 					audio->pcm_cfg.channel_count);

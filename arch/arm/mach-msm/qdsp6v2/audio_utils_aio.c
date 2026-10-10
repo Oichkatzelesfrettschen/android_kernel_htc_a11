@@ -1113,8 +1113,12 @@ int audio_aio_open(struct q6audio_aio *audio, struct file *file)
 	audio->str_cfg.buffer_size = FRAME_SIZE;
 	audio->str_cfg.buffer_count = FRAME_NUM;
 	audio->pcm_cfg.buffer_count = PCM_BUF_COUNT;
-	audio->pcm_cfg.sample_rate = 48000;
-	audio->pcm_cfg.channel_count = 2;
+	/* A codec whose output format is fixed seeds pcm_cfg before this
+	 * call; the rest start at 48 kHz stereo until AUDIO_SET_CONFIG. */
+	if (!audio->pcm_cfg.sample_rate)
+		audio->pcm_cfg.sample_rate = 48000;
+	if (!audio->pcm_cfg.channel_count)
+		audio->pcm_cfg.channel_count = 2;
 
 	/* Only AIO interface */
 	if (file->f_flags & O_NONBLOCK) {
@@ -1417,6 +1421,17 @@ long audio_aio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			mutex_unlock(&audio->lock);
 			break;
 		}
+		/* Zero rate or channel count leaves the stream default in
+		 * place; a nonzero channel count must have a q6asm channel
+		 * map, since AUDIO_START builds the PCM block from it. */
+		if (config.channel_count &&
+		    !q6asm_pcm_channels_supported(config.channel_count)) {
+			pr_err("%s[%p]:AUDIO_SET_CONFIG unsupported channel_count %u\n",
+				__func__, audio, config.channel_count);
+			rc = -EINVAL;
+			mutex_unlock(&audio->lock);
+			break;
+		}
 		if ((config.buffer_count > PCM_BUF_COUNT) ||
 			(config.buffer_count == 1))
 			config.buffer_count = PCM_BUF_COUNT;
@@ -1426,8 +1441,14 @@ long audio_aio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 		audio->pcm_cfg.buffer_count = config.buffer_count;
 		audio->pcm_cfg.buffer_size = config.buffer_size;
-		audio->pcm_cfg.channel_count = config.channel_count;
-		audio->pcm_cfg.sample_rate = config.sample_rate;
+		if (config.channel_count) {
+			audio->pcm_cfg.channel_count = config.channel_count;
+			audio->pcm_channels_explicit = true;
+		}
+		if (config.sample_rate) {
+			audio->pcm_cfg.sample_rate = config.sample_rate;
+			audio->pcm_rate_explicit = true;
+		}
 		rc = 0;
 		mutex_unlock(&audio->lock);
 		break;
