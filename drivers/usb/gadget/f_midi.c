@@ -421,6 +421,7 @@ static void f_midi_unbind(struct usb_configuration *c, struct usb_function *f)
 	midi->id = NULL;
 
 	usb_free_descriptors(f->descriptors);
+	usb_free_descriptors(f->hs_descriptors);
 	kfree(midi);
 }
 
@@ -886,20 +887,37 @@ f_midi_bind(struct usb_configuration *c, struct usb_function *f)
 	 * hardware is dual speed, all bulk-capable endpoints work at
 	 * both speeds
 	 */
-	/* copy descriptors, and track endpoint copies */
+	/*
+	 * Copy descriptors, and track endpoint copies. The full-speed set comes
+	 * first, while the bulk wMaxPacketSize still holds the full-speed value
+	 * from usb_ep_autoconfig(); the high-speed set follows with 512.
+	 */
+	f->descriptors = usb_copy_descriptors(midi_function);
+	if (!f->descriptors) {
+		status = -ENOMEM;
+		goto fail_free;
+	}
 	if (gadget_is_dualspeed(c->cdev->gadget)) {
 		c->highspeed = true;
 		bulk_in_desc.wMaxPacketSize = cpu_to_le16(512);
 		bulk_out_desc.wMaxPacketSize = cpu_to_le16(512);
 		f->hs_descriptors = usb_copy_descriptors(midi_function);
-	} else {
-		f->descriptors = usb_copy_descriptors(midi_function);
+		if (!f->hs_descriptors) {
+			status = -ENOMEM;
+			goto fail_free;
+		}
 	}
 
 	kfree(midi_function);
 
 	return 0;
 
+fail_free:
+	usb_free_descriptors(f->descriptors);
+	f->descriptors = NULL;
+	usb_free_descriptors(f->hs_descriptors);
+	f->hs_descriptors = NULL;
+	kfree(midi_function);
 fail:
 	/* we might as well release our claims on endpoints */
 	if (midi->out_ep)
