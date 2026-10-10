@@ -445,6 +445,15 @@ static void f_midi_unbind(struct usb_configuration *c, struct usb_function *f)
 	if (card)
 		snd_card_disconnect(card);
 	tasklet_kill(&midi->tasklet);
+	/*
+	 * f_midi_bind() and f_midi_set_alt() claim both endpoints through
+	 * driver_data, which usb_ep_autoconfig() reads; release the claims so the
+	 * next composition can allocate them before usb_ep_autoconfig_reset().
+	 */
+	if (midi->in_ep)
+		midi->in_ep->driver_data = NULL;
+	if (midi->out_ep)
+		midi->out_ep->driver_data = NULL;
 	midi->in_ep = NULL;
 	midi->out_ep = NULL;
 
