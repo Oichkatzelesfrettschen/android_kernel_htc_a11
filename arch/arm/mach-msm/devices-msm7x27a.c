@@ -940,7 +940,7 @@ static struct kgsl_device_platform_data kgsl_3d0_pdata = {
 	.init_level = 0,
 	.num_levels = 3,
 	.set_grp_async = set_grp_xbar_async,
-	.idle_timeout = HZ,
+	.idle_timeout = 1000,
 	.strtstp_sleepwake = true,
 	.clk_map = KGSL_CLK_CORE | KGSL_CLK_IFACE | KGSL_CLK_MEM,
 };
@@ -969,7 +969,7 @@ void __init msm7x25a_kgsl_3d0_init(void)
 void __init msm8x25_kgsl_3d0_init(void)
 {
 	if (cpu_is_msm8625() || cpu_is_msm8625q()) {
-		kgsl_3d0_pdata.idle_timeout = HZ/5;
+		kgsl_3d0_pdata.idle_timeout = 200;
 		kgsl_3d0_pdata.strtstp_sleepwake = false;
 
 		if (SOCINFO_VERSION_MAJOR(socinfo_get_version()) >= 2)

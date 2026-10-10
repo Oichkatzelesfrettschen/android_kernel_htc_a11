@@ -1293,7 +1293,7 @@ static struct kgsl_device_platform_data kgsl_3d0_pdata = {
 	.init_level = 0,
 	.num_levels = 3,
 	.set_grp_async = set_grp3d_async,
-	.idle_timeout = HZ/20,
+	.idle_timeout = 50,
 	.idle_needed = true,
 	.clk_map = KGSL_CLK_SRC | KGSL_CLK_CORE |
 		KGSL_CLK_IFACE | KGSL_CLK_MEM,
@@ -1335,7 +1335,7 @@ static struct kgsl_device_platform_data kgsl_2d0_pdata = {
 	.num_levels = 1,
 	/* HW workaround, run Z180 SYNC @ 192 MHZ */
 	.set_grp_async = NULL,
-	.idle_timeout = HZ/10,
+	.idle_timeout = 100,
 	.idle_needed = true,
 	.clk_map = KGSL_CLK_CORE | KGSL_CLK_IFACE,
 };
