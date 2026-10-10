@@ -561,12 +561,24 @@ static void handle_session_init_done(enum command_response cmd, void *data)
 			inst->capability.buffer_mode[CAPTURE_PORT] =
 				session_init_done->alloc_mode_out;
 		} else {
-			dprintk(VIDC_ERR,
-				"Session init response from FW : 0x%x (core %d, codec 0x%x, supported 0x%x)",
-				response->status, inst->core->id,
-				get_hal_codec_type(inst->fmts[OUTPUT_PORT] ?
-					inst->fmts[OUTPUT_PORT]->fourcc : 0),
-				inst->core->dec_codec_supported);
+			/* The compressed format sits on the input (OUTPUT) port of
+			 * a decoder and on the CAPTURE port of an encoder. */
+			{
+				struct msm_vidc_format *fmt =
+					inst->session_type == MSM_VIDC_ENCODER ?
+					inst->fmts[CAPTURE_PORT] :
+					inst->fmts[OUTPUT_PORT];
+				dprintk(VIDC_ERR,
+					"Session init response from FW : 0x%x (core %d, %s, codec 0x%x, supported 0x%x)",
+					response->status, inst->core->id,
+					inst->session_type == MSM_VIDC_ENCODER ?
+					"encoder" : "decoder",
+					fmt ? get_hal_codec_type(fmt->fourcc) :
+					HAL_UNUSED_CODEC,
+					inst->session_type == MSM_VIDC_ENCODER ?
+					inst->core->enc_codec_supported :
+					inst->core->dec_codec_supported);
+			}
                         if (response->status == VIDC_ERR_MAX_CLIENT)
                                 msm_comm_generate_max_client_error(inst);
                         else
@@ -1784,7 +1796,7 @@ enum hal_video_codec get_hal_codec_type(int fourcc)
 	case V4L2_PIX_FMT_HEVC_HYBRID:
 		codec = HAL_VIDEO_CODEC_HEVC_HYBRID;
 		break;
-	case V4L2_PIX_FMT_SPARK:
+	case V4L2_PIX_FMT_SPK:
 		codec = HAL_VIDEO_CODEC_SPARK;
 		break;
 	default:
