@@ -31,7 +31,7 @@
 
 #define MAX_LONG_SIZE 24
 #define DEFAULT_RQ_POLL_JIFFIES 1
-#define DEFAULT_DEF_TIMER_JIFFIES 5
+#define DEFAULT_DEF_TIMER_MS 50
 
 struct notifier_block freq_transition;
 struct notifier_block policy_change;
@@ -413,7 +413,7 @@ static int __init msm_rq_stats_init(void)
 	INIT_WORK(&rq_info.def_timer_work, def_work_fn);
 	spin_lock_init(&rq_lock);
 	rq_info.rq_poll_jiffies = DEFAULT_RQ_POLL_JIFFIES;
-	rq_info.def_timer_jiffies = DEFAULT_DEF_TIMER_JIFFIES;
+	rq_info.def_timer_jiffies = msecs_to_jiffies(DEFAULT_DEF_TIMER_MS);
 	rq_info.rq_poll_last_jiffy = 0;
 	rq_info.def_timer_last_jiffy = 0;
 	rq_info.hotplug_disabled = 1;
