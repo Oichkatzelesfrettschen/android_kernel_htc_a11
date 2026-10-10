@@ -121,8 +121,8 @@ static int ion_cma_allocate(struct ion_heap *heap, struct ion_buffer *buffer,
 			dma_free_writecombine(dev, len, info->cpu_addr,
 					      info->handle);
 		else
-			dma_free_noncoherent(dev, len, info->cpu_addr,
-					     info->handle);
+			dma_free_nonconsistent(dev, len, info->cpu_addr,
+					       info->handle);
 		goto err;
 	}
 

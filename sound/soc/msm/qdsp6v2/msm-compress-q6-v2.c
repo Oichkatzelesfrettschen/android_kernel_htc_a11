@@ -1006,9 +1006,11 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 	memcpy(&prtd->codec_param, params, sizeof(struct snd_compr_params));
 
 	
-	/* ch_in is zero when the stream carries its channel count in-band;
-	 * the stream keeps its current channel count in that case. */
-	if (prtd->codec_param.codec.ch_in)
+	/* ch_in is zero when a compressed stream carries its channel count
+	 * in-band, and the media format block passes that zero to the DSP. Linear
+	 * PCM has no in-band count, so it keeps the current count instead. */
+	if (prtd->codec_param.codec.ch_in ||
+	    prtd->codec_param.codec.id != SND_AUDIOCODEC_PCM)
 		prtd->num_channels = prtd->codec_param.codec.ch_in;
 
 	switch (prtd->codec_param.codec.sample_rate) {

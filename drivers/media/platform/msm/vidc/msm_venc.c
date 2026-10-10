@@ -1064,7 +1064,9 @@ static int msm_venc_toggle_hier_p(struct msm_vidc_inst *inst, bool enable)
 	if (inst->fmts[CAPTURE_PORT]->fourcc != V4L2_PIX_FMT_VP8)
 		return 0;
 
-	num_enh_layers = enable ? inst->capability.hier_p.max - 1 : 0;
+	/* HFI_CAPABILITY_HIER_P_NUM_ENH_LAYERS reports the maximum number of
+	 * enhancement layers, so the firmware maximum is that count. */
+	num_enh_layers = enable ? inst->capability.hier_p.max : 0;
 
 	dprintk(VIDC_DBG, "%s Hier-P in firmware\n",
 			num_enh_layers ? "Enable" : "Disable");
@@ -2243,17 +2245,20 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	case V4L2_CID_MPEG_VIDC_VIDEO_HIER_P_NUM_LAYERS:
 		property_id = HAL_CONFIG_VENC_HIER_P_NUM_FRAMES;
 		hier_p_layers = ctrl->val;
-		rc = msm_venc_toggle_hier_p(inst, hier_p_layers ? true : false);
-		if (rc)
-			break;
-		if (hier_p_layers > (inst->capability.hier_p.max - 1)) {
+		/* The request is checked against the reported enhancement-layer
+		 * maximum before any property reaches the firmware, so a refused
+		 * ioctl leaves the session's hierarchy unchanged. */
+		if (hier_p_layers > inst->capability.hier_p.max) {
 			dprintk(VIDC_ERR,
 				"Error setting hier p num layers = %d max supported by f/w = %d\n",
 				hier_p_layers,
-				inst->capability.hier_p.max - 1);
+				inst->capability.hier_p.max);
 			rc = -ENOTSUPP;
 			break;
 		}
+		rc = msm_venc_toggle_hier_p(inst, hier_p_layers ? true : false);
+		if (rc)
+			break;
 		pdata = &hier_p_layers;
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY:
