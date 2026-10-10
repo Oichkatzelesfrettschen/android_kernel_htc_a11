@@ -1704,8 +1704,9 @@ static void q6asm_add_mmaphdr(struct audio_client *ac, struct apr_hdr *hdr,
 /*
  * q6asm_cmd_status() returns the errno for the ADSP_E* status the DSP put in
  * the APR_BASIC_RSP_RESULT of the synchronous command that just completed, or
- * 0 when the DSP accepted it. The callback stores cmd_status before it clears
- * cmd_state, so the read follows a wait on cmd_state == 0.
+ * 0 when the DSP accepted it. ADSP_EALREADY reports a state the stream already
+ * holds and counts as accepted. The callback stores cmd_status before it
+ * clears cmd_state, so the read follows a wait on cmd_state == 0.
  */
 static int q6asm_cmd_status(struct audio_client *ac, const char *caller)
 {
@@ -1713,7 +1714,7 @@ static int q6asm_cmd_status(struct audio_client *ac, const char *caller)
 
 	smp_rmb();
 	status = atomic_read(&ac->cmd_status);
-	if (!status)
+	if (status == ADSP_EOK || status == ADSP_EALREADY)
 		return 0;
 	pr_err("%s: DSP returned error[%s] 0x%x\n", caller,
 	       adsp_err_get_err_str(status), status);
@@ -2911,22 +2912,19 @@ int q6asm_stream_media_format_block_aac(struct audio_client *ac,
 	return __q6asm_media_format_block_multi_aac(ac, cfg, stream_id);
 }
 
-int q6asm_media_format_block_wma(struct audio_client *ac,
-				void *cfg)
+int q6asm_stream_media_format_block_wma(struct audio_client *ac,
+				struct asm_wma_cfg *wma_cfg, int stream_id)
 {
 	struct asm_wmastdv9_fmt_blk_v2 fmt;
-	struct asm_wma_cfg *wma_cfg = (struct asm_wma_cfg *)cfg;
-	int rc = 0;
 
-	pr_debug("session[%d]format_tag[0x%4x] rate[%d] ch[0x%4x] bps[%d], balign[0x%4x], bit_sample[0x%4x], ch_msk[%d], enc_opt[0x%4x]\n",
+	pr_debug("session[%d]format_tag[0x%4x] rate[%d] ch[0x%4x] bps[%d], balign[0x%4x], bit_sample[0x%4x], ch_msk[%d], enc_opt[0x%4x], stream_id[%d]\n",
 		ac->session, wma_cfg->format_tag, wma_cfg->sample_rate,
 		wma_cfg->ch_cfg, wma_cfg->avg_bytes_per_sec,
 		wma_cfg->block_align, wma_cfg->valid_bits_per_sample,
-		wma_cfg->ch_mask, wma_cfg->encode_opt);
+		wma_cfg->ch_mask, wma_cfg->encode_opt, stream_id);
 
-	q6asm_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE);
-
-	fmt.hdr.opcode = ASM_DATA_CMD_MEDIA_FMT_UPDATE_V2;
+	memset(&fmt, 0, sizeof(fmt));
+	q6asm_stream_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE, stream_id);
 	fmt.fmtblk.fmt_blk_size = sizeof(fmt) - sizeof(fmt.hdr) -
 					sizeof(fmt.fmtblk);
 	fmt.fmtag = wma_cfg->format_tag;
@@ -2934,52 +2932,54 @@ int q6asm_media_format_block_wma(struct audio_client *ac,
 	fmt.sample_rate = wma_cfg->sample_rate;
 	fmt.avg_bytes_per_sec = wma_cfg->avg_bytes_per_sec;
 	fmt.blk_align = wma_cfg->block_align;
-	fmt.bits_per_sample =
-			wma_cfg->valid_bits_per_sample;
+	fmt.bits_per_sample = wma_cfg->valid_bits_per_sample;
 	fmt.channel_mask = wma_cfg->ch_mask;
 	fmt.enc_options = wma_cfg->encode_opt;
 
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &fmt);
-	if (rc < 0) {
-		pr_err("%s:Comamnd open failed\n", __func__);
-		goto fail_cmd;
-	}
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 5*HZ);
-	if (!rc) {
-		pr_err("%s:timeout. waited for FORMAT_UPDATE\n", __func__);
-		goto fail_cmd;
-	}
-	return 0;
-fail_cmd:
-	return -EINVAL;
+	return q6asm_stream_fmt_update(ac, &fmt.hdr, stream_id, __func__);
 }
 
-int q6asm_media_format_block_wmapro(struct audio_client *ac,
+/*
+ * q6asm_legacy_fmt_rc() keeps the AIO decoder nodes on the contract they
+ * had before the DSP status was reported: a media format block fails them on
+ * a send error or a timeout, and a status the DSP returned only reaches the
+ * kernel log.
+ */
+static int q6asm_legacy_fmt_rc(struct audio_client *ac, int rc)
+{
+	if (rc && rc == adsp_err_get_lnx_err_code(atomic_read(&ac->cmd_status)))
+		return 0;
+	return rc;
+}
+
+int q6asm_media_format_block_wma(struct audio_client *ac,
 				void *cfg)
 {
-	struct asm_wmaprov10_fmt_blk_v2 fmt;
-	struct asm_wmapro_cfg *wmapro_cfg = (struct asm_wmapro_cfg *)cfg;
-	int rc = 0;
+	return q6asm_legacy_fmt_rc(ac, q6asm_stream_media_format_block_wma(ac,
+				(struct asm_wma_cfg *)cfg, ac->stream_id));
+}
 
-	pr_debug("session[%d]format_tag[0x%4x] rate[%d] ch[0x%4x] bps[%d], balign[0x%4x], bit_sample[0x%4x], ch_msk[%d], enc_opt[0x%4x], adv_enc_opt[0x%4x], adv_enc_opt2[0x%8x]\n",
+int q6asm_stream_media_format_block_wmapro(struct audio_client *ac,
+			struct asm_wmapro_cfg *wmapro_cfg, int stream_id)
+{
+	struct asm_wmaprov10_fmt_blk_v2 fmt;
+
+	pr_debug("session[%d]format_tag[0x%4x] rate[%d] ch[0x%4x] bps[%d], balign[0x%4x], bit_sample[0x%4x], ch_msk[%d], enc_opt[0x%4x], adv_enc_opt[0x%4x], adv_enc_opt2[0x%8x], stream_id[%d]\n",
 		ac->session, wmapro_cfg->format_tag, wmapro_cfg->sample_rate,
 		wmapro_cfg->ch_cfg,  wmapro_cfg->avg_bytes_per_sec,
 		wmapro_cfg->block_align, wmapro_cfg->valid_bits_per_sample,
 		wmapro_cfg->ch_mask, wmapro_cfg->encode_opt,
-		wmapro_cfg->adv_encode_opt, wmapro_cfg->adv_encode_opt2);
+		wmapro_cfg->adv_encode_opt, wmapro_cfg->adv_encode_opt2,
+		stream_id);
 
-	q6asm_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE);
-
-	fmt.hdr.opcode = ASM_DATA_CMD_MEDIA_FMT_UPDATE_V2;
+	memset(&fmt, 0, sizeof(fmt));
+	q6asm_stream_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE, stream_id);
 	fmt.fmtblk.fmt_blk_size = sizeof(fmt) - sizeof(fmt.hdr) -
 						sizeof(fmt.fmtblk);
-
 	fmt.fmtag = wmapro_cfg->format_tag;
 	fmt.num_channels = wmapro_cfg->ch_cfg;
 	fmt.sample_rate = wmapro_cfg->sample_rate;
-	fmt.avg_bytes_per_sec =
-				wmapro_cfg->avg_bytes_per_sec;
+	fmt.avg_bytes_per_sec = wmapro_cfg->avg_bytes_per_sec;
 	fmt.blk_align = wmapro_cfg->block_align;
 	fmt.bits_per_sample = wmapro_cfg->valid_bits_per_sample;
 	fmt.channel_mask = wmapro_cfg->ch_mask;
@@ -2987,20 +2987,14 @@ int q6asm_media_format_block_wmapro(struct audio_client *ac,
 	fmt.usAdvancedEncodeOpt = wmapro_cfg->adv_encode_opt;
 	fmt.advanced_enc_options2 = wmapro_cfg->adv_encode_opt2;
 
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &fmt);
-	if (rc < 0) {
-		pr_err("%s:Comamnd open failed\n", __func__);
-		goto fail_cmd;
-	}
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 5*HZ);
-	if (!rc) {
-		pr_err("%s:timeout. waited for FORMAT_UPDATE\n", __func__);
-		goto fail_cmd;
-	}
-	return 0;
-fail_cmd:
-	return -EINVAL;
+	return q6asm_stream_fmt_update(ac, &fmt.hdr, stream_id, __func__);
+}
+
+int q6asm_media_format_block_wmapro(struct audio_client *ac,
+				void *cfg)
+{
+	return q6asm_legacy_fmt_rc(ac, q6asm_stream_media_format_block_wmapro(ac,
+			(struct asm_wmapro_cfg *)cfg, ac->stream_id));
 }
 
 int q6asm_media_format_block_amrwbplus(struct audio_client *ac,

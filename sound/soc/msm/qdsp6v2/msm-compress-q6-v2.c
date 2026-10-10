@@ -492,9 +492,26 @@ static void populate_codec_list(struct msm_compr_audio *prtd)
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_FLAC);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_ALAC);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_APE);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_WMA);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_WMA_PRO);
 #ifdef CONFIG_HD_AUDIO
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_PCM);
 #endif
+}
+
+/*
+ * msm_compr_wma_avg_bytes() returns nAvgBytesPerSec for the WMA media format
+ * block: the stream's average bit rate in bytes, taken from the codec options
+ * and, when the HAL left them empty, from the codec bit rate.
+ */
+static uint32_t msm_compr_wma_avg_bytes(const struct msm_compr_audio *prtd)
+{
+	const struct snd_codec *codec = &prtd->codec_param.codec;
+	uint32_t bit_rate = codec->options.wma.avg_bit_rate;
+
+	if (!bit_rate)
+		bit_rate = codec->bit_rate;
+	return bit_rate / 8;
 }
 
 static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
@@ -506,6 +523,8 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 	struct asm_flac_cfg flac_cfg;
 	struct asm_alac_cfg alac_cfg;
 	struct asm_ape_cfg ape_cfg;
+	struct asm_wma_cfg wma_cfg;
+	struct asm_wmapro_cfg wma_pro_cfg;
 	const union snd_codec_options *opts = &prtd->codec_param.codec.options;
 	int ret = 0;
 
@@ -550,6 +569,40 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 		flac_cfg.max_frame_size = opts->flac_dec.max_frame_size;
 		ret = q6asm_stream_media_format_block_flac(prtd->audio_client,
 							   &flac_cfg, stream_id);
+		if (ret < 0)
+			pr_err("%s: CMD Format block failed ret %d\n",
+			       __func__, ret);
+		break;
+	case FORMAT_WMA_V9:
+		memset(&wma_cfg, 0x0, sizeof(struct asm_wma_cfg));
+		wma_cfg.format_tag = prtd->codec_param.codec.format;
+		wma_cfg.ch_cfg = prtd->codec_param.codec.ch_in;
+		wma_cfg.sample_rate = prtd->sample_rate;
+		wma_cfg.avg_bytes_per_sec = msm_compr_wma_avg_bytes(prtd);
+		wma_cfg.block_align = opts->wma.super_block_align;
+		wma_cfg.valid_bits_per_sample = opts->wma.bits_per_sample;
+		wma_cfg.ch_mask = opts->wma.channelmask;
+		wma_cfg.encode_opt = opts->wma.encodeopt;
+		ret = q6asm_stream_media_format_block_wma(prtd->audio_client,
+							  &wma_cfg, stream_id);
+		if (ret < 0)
+			pr_err("%s: CMD Format block failed ret %d\n",
+			       __func__, ret);
+		break;
+	case FORMAT_WMA_V10PRO:
+		memset(&wma_pro_cfg, 0x0, sizeof(struct asm_wmapro_cfg));
+		wma_pro_cfg.format_tag = prtd->codec_param.codec.format;
+		wma_pro_cfg.ch_cfg = prtd->codec_param.codec.ch_in;
+		wma_pro_cfg.sample_rate = prtd->sample_rate;
+		wma_pro_cfg.avg_bytes_per_sec = msm_compr_wma_avg_bytes(prtd);
+		wma_pro_cfg.block_align = opts->wma.super_block_align;
+		wma_pro_cfg.valid_bits_per_sample = opts->wma.bits_per_sample;
+		wma_pro_cfg.ch_mask = opts->wma.channelmask;
+		wma_pro_cfg.encode_opt = opts->wma.encodeopt;
+		wma_pro_cfg.adv_encode_opt = opts->wma.encodeopt1;
+		wma_pro_cfg.adv_encode_opt2 = opts->wma.encodeopt2;
+		ret = q6asm_stream_media_format_block_wmapro(
+				prtd->audio_client, &wma_pro_cfg, stream_id);
 		if (ret < 0)
 			pr_err("%s: CMD Format block failed ret %d\n",
 			       __func__, ret);
@@ -985,6 +1038,18 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 		/* The DSP buffers in blocks; the smallest block bounds the wait. */
 		frame_sz = min_t(uint32_t, DSP_MAX_OUTPUT_FRAME_SZ,
 			prtd->codec_param.codec.options.flac_dec.min_blk_size);
+		break;
+	}
+
+	case SND_AUDIOCODEC_WMA: {
+		pr_debug("SND_AUDIOCODEC_WMA\n");
+		prtd->codec = FORMAT_WMA_V9;
+		break;
+	}
+
+	case SND_AUDIOCODEC_WMA_PRO: {
+		pr_debug("SND_AUDIOCODEC_WMA_PRO\n");
+		prtd->codec = FORMAT_WMA_V10PRO;
 		break;
 	}
 
@@ -1704,6 +1769,17 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 		codec->descriptor[0].profiles = 0;
 		codec->descriptor[0].modes = 0;
 		codec->descriptor[0].formats = SND_AUDIOSTREAMFORMAT_FLAC;
+		break;
+	case SND_AUDIOCODEC_WMA:
+	case SND_AUDIOCODEC_WMA_PRO:
+		codec->num_descriptors = 1;
+		codec->descriptor[0].max_ch = 2;
+		codec->descriptor[0].sample_rates = SNDRV_PCM_RATE_8000_48000;
+		codec->descriptor[0].num_bitrates = 0;
+		codec->descriptor[0].profiles = SND_AUDIOPROFILE_WMA9 |
+						SND_AUDIOPROFILE_WMA10;
+		codec->descriptor[0].modes = 0;
+		codec->descriptor[0].formats = 0;
 		break;
 	case SND_AUDIOCODEC_ALAC:
 	case SND_AUDIOCODEC_APE:

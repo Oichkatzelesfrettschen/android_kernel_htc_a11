@@ -353,8 +353,14 @@ int q6asm_media_format_block_multi_aac(struct audio_client *ac,
 int q6asm_media_format_block_wma(struct audio_client *ac,
 			void *cfg);
 
+int q6asm_stream_media_format_block_wma(struct audio_client *ac,
+			struct asm_wma_cfg *cfg, int stream_id);
+
 int q6asm_media_format_block_wmapro(struct audio_client *ac,
 			void *cfg);
+
+int q6asm_stream_media_format_block_wmapro(struct audio_client *ac,
+			struct asm_wmapro_cfg *cfg, int stream_id);
 
 int q6asm_media_format_block_amrwbplus(struct audio_client *ac,
 			struct asm_amrwbplus_cfg *cfg);
