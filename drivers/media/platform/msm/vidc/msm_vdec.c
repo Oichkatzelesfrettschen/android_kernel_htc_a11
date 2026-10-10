@@ -420,6 +420,14 @@ struct msm_vidc_format vdec_formats[] = {
 		.type = OUTPUT_PORT,
 	},
 	{
+		.name = "Mpeg1",
+		.description = "Mpeg1 compressed format",
+		.fourcc = V4L2_PIX_FMT_MPEG1,
+		.num_planes = 1,
+		.get_frame_size = get_frame_size_compressed,
+		.type = OUTPUT_PORT,
+	},
+	{
 		.name = "Mpeg2",
 		.description = "Mpeg2 compressed format",
 		.fourcc = V4L2_PIX_FMT_MPEG2,
