@@ -1006,7 +1006,10 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 	memcpy(&prtd->codec_param, params, sizeof(struct snd_compr_params));
 
 	
-	prtd->num_channels = prtd->codec_param.codec.ch_in;
+	/* ch_in is zero when the stream carries its channel count in-band;
+	 * the stream keeps the stereo default from open in that case. */
+	if (prtd->codec_param.codec.ch_in)
+		prtd->num_channels = prtd->codec_param.codec.ch_in;
 
 	switch (prtd->codec_param.codec.sample_rate) {
 	case SNDRV_PCM_RATE_8000:
@@ -1186,6 +1189,12 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 		default:
 			pr_err("PCM sample format %d not supported\n",
 				prtd->codec_param.codec.format);
+			return -EINVAL;
+		}
+		/* The PCM format block carries a channel map. */
+		if (!q6asm_pcm_channels_supported(prtd->num_channels)) {
+			pr_err("PCM channel count %u not supported\n",
+				prtd->num_channels);
 			return -EINVAL;
 		}
 		break;

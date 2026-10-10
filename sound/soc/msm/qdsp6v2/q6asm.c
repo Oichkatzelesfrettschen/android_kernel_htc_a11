@@ -12,6 +12,7 @@
  * GNU General Public License for more details.
  *
  */
+#include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/mutex.h>
 #include <linux/wait.h>
@@ -2295,6 +2296,8 @@ int q6asm_set_encdec_chan_map(struct audio_client *ac,
 	int rc = 0;
 	pr_debug("%s: Session %d, num_channels = %d\n",
 			 __func__, ac->session, num_channels);
+	if (!q6asm_pcm_channels_supported(num_channels))
+		return -EINVAL;
 	q6asm_add_hdr(ac, &chan_map.hdr, sizeof(chan_map), TRUE);
 	chan_map.hdr.opcode = ASM_STREAM_CMD_SET_ENCDEC_PARAM;
 	chan_map.encdec.param_id = ASM_PARAM_ID_DEC_OUTPUT_CHAN_MAP;
@@ -2338,6 +2341,14 @@ static int __q6asm_enc_cfg_blk_pcm(struct audio_client *ac,
 
 	pr_debug("%s: Session %d, rate = %d, channels = %d\n", __func__,
 			 ac->session, rate, channels);
+
+	/* ASM_PARAM_ID_ENCDEC_ENC_CFG_BLK_V2 carries the rate and channel
+	 * count the DSP encodes to; zero in either is not a format. */
+	if (!rate || !q6asm_pcm_channels_supported(channels)) {
+		pr_err("%s: invalid PCM format rate %u channels %u\n",
+		       __func__, rate, channels);
+		return -EINVAL;
+	}
 
 	q6asm_add_hdr(ac, &enc_cfg.hdr, sizeof(enc_cfg), TRUE);
 	enc_cfg.hdr.opcode = ASM_STREAM_CMD_SET_ENCDEC_PARAM;
@@ -2400,6 +2411,15 @@ int q6asm_enc_cfg_blk_pcm_native(struct audio_client *ac,
 	pr_debug("%s: Session %d, rate = %d, channels = %d\n", __func__,
 			 ac->session, rate, channels);
 
+	/* Rate and channel count in the block are zero so the DSP emits the
+	 * stream's native format; the channel map is built for the channel
+	 * count the client declared, which must be mappable. */
+	if (!q6asm_pcm_channels_supported(channels)) {
+		pr_err("%s: invalid PCM channel count %u\n", __func__,
+		       channels);
+		return -EINVAL;
+	}
+
 	q6asm_add_hdr(ac, &enc_cfg.hdr, sizeof(enc_cfg), TRUE);
 
 	enc_cfg.hdr.opcode = ASM_STREAM_CMD_SET_ENCDEC_PARAM;
@@ -2439,54 +2459,68 @@ fail_cmd:
 	return -EINVAL;
 }
 
+/* The channel maps below cover 1-6 and 8 channels; the ASM PCM format blocks
+ * carry PCM_FORMAT_MAX_NUM_CHANNEL map entries. */
+bool q6asm_pcm_channels_supported(uint32_t channels)
+{
+	return (channels >= 1 && channels <= 6) || channels == 8;
+}
+EXPORT_SYMBOL(q6asm_pcm_channels_supported);
+
 static int q6asm_map_channels(u8 *channel_mapping, uint32_t channels)
 {
-	u8 *lchannel_mapping;
-	lchannel_mapping = channel_mapping;
 	pr_debug("%s channels passed: %d\n", __func__, channels);
-	if (channels == 1)  {
-		lchannel_mapping[0] = PCM_CHANNEL_FC;
-	} else if (channels == 2) {
-		lchannel_mapping[0] = PCM_CHANNEL_FL;
-		lchannel_mapping[1] = PCM_CHANNEL_FR;
-	} else if (channels == 3) {
-		lchannel_mapping[0] = PCM_CHANNEL_FL;
-		lchannel_mapping[1] = PCM_CHANNEL_FR;
-		lchannel_mapping[2] = PCM_CHANNEL_FC;
-	} else if (channels == 4) {
-		lchannel_mapping[0] = PCM_CHANNEL_FL;
-		lchannel_mapping[1] = PCM_CHANNEL_FR;
-		lchannel_mapping[2] = PCM_CHANNEL_RB;
-		lchannel_mapping[3] = PCM_CHANNEL_LB;
-	} else if (channels == 5) {
-		lchannel_mapping[0] = PCM_CHANNEL_FL;
-		lchannel_mapping[1] = PCM_CHANNEL_FR;
-		lchannel_mapping[2] = PCM_CHANNEL_FC;
-		lchannel_mapping[3] = PCM_CHANNEL_LB;
-		lchannel_mapping[4] = PCM_CHANNEL_RB;
-	} else if (channels == 6) {
-		lchannel_mapping[0] = PCM_CHANNEL_FL;
-		lchannel_mapping[1] = PCM_CHANNEL_FR;
-		lchannel_mapping[2] = PCM_CHANNEL_FC;
-		lchannel_mapping[3] = PCM_CHANNEL_LFE;
-		lchannel_mapping[4] = PCM_CHANNEL_LS;
-		lchannel_mapping[5] = PCM_CHANNEL_RS;
-	} else if (channels == 8) {
-		lchannel_mapping[0] = PCM_CHANNEL_FL;
-		lchannel_mapping[1] = PCM_CHANNEL_FR;
-		lchannel_mapping[2] = PCM_CHANNEL_FC;
-		lchannel_mapping[3] = PCM_CHANNEL_LFE;
-		lchannel_mapping[4] = PCM_CHANNEL_LB;
-		lchannel_mapping[5] = PCM_CHANNEL_RB;
-		lchannel_mapping[6] = PCM_CHANNEL_FLC;
-		lchannel_mapping[7] = PCM_CHANNEL_FRC;
-	} else {
+	if (!q6asm_pcm_channels_supported(channels)) {
 		pr_err("%s: ERROR.unsupported num_ch = %u\n",
 		 __func__, channels);
 		return -EINVAL;
 	}
+	switch (channels) {
+	case 1:
+		channel_mapping[0] = PCM_CHANNEL_FC;
+		break;
+	case 2:
+		channel_mapping[0] = PCM_CHANNEL_FL;
+		channel_mapping[1] = PCM_CHANNEL_FR;
+		break;
+	case 3:
+		channel_mapping[0] = PCM_CHANNEL_FL;
+		channel_mapping[1] = PCM_CHANNEL_FR;
+		channel_mapping[2] = PCM_CHANNEL_FC;
+		break;
+	case 4:
+		channel_mapping[0] = PCM_CHANNEL_FL;
+		channel_mapping[1] = PCM_CHANNEL_FR;
+		channel_mapping[2] = PCM_CHANNEL_RB;
+		channel_mapping[3] = PCM_CHANNEL_LB;
+		break;
+	case 5:
+		channel_mapping[0] = PCM_CHANNEL_FL;
+		channel_mapping[1] = PCM_CHANNEL_FR;
+		channel_mapping[2] = PCM_CHANNEL_FC;
+		channel_mapping[3] = PCM_CHANNEL_LB;
+		channel_mapping[4] = PCM_CHANNEL_RB;
+		break;
+	case 6:
+		channel_mapping[0] = PCM_CHANNEL_FL;
+		channel_mapping[1] = PCM_CHANNEL_FR;
+		channel_mapping[2] = PCM_CHANNEL_FC;
+		channel_mapping[3] = PCM_CHANNEL_LFE;
+		channel_mapping[4] = PCM_CHANNEL_LS;
+		channel_mapping[5] = PCM_CHANNEL_RS;
+		break;
+	case 8:
+		channel_mapping[0] = PCM_CHANNEL_FL;
+		channel_mapping[1] = PCM_CHANNEL_FR;
+		channel_mapping[2] = PCM_CHANNEL_FC;
+		channel_mapping[3] = PCM_CHANNEL_LFE;
+		channel_mapping[4] = PCM_CHANNEL_LB;
+		channel_mapping[5] = PCM_CHANNEL_RB;
+		channel_mapping[6] = PCM_CHANNEL_FLC;
+		channel_mapping[7] = PCM_CHANNEL_FRC;
+		break;
+	}
 	return 0;
-
 }
 
 int q6asm_enable_sbrps(struct audio_client *ac,
@@ -2744,6 +2778,12 @@ static int __q6asm_media_format_block_pcm(struct audio_client *ac,
 	pr_debug("%s:session[%d]rate[%d]ch[%d]\n", __func__, ac->session, rate,
 		channels);
 
+	if (!rate || !q6asm_pcm_channels_supported(channels)) {
+		pr_err("%s: invalid PCM format rate %u channels %u\n",
+		       __func__, rate, channels);
+		return -EINVAL;
+	}
+
 	q6asm_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE);
 
 	fmt.hdr.opcode = ASM_DATA_CMD_MEDIA_FMT_UPDATE_V2;
@@ -2806,6 +2846,12 @@ int q6asm_stream_media_format_block_pcm_format_support(
 		 __func__, ac->session, rate, channels, bits_per_sample,
 		 stream_id);
 
+	if (!rate || !q6asm_pcm_channels_supported(channels)) {
+		pr_err("%s: invalid PCM format rate %u channels %u\n",
+		       __func__, rate, channels);
+		return -EINVAL;
+	}
+
 	memset(&fmt, 0, sizeof(fmt));
 	q6asm_stream_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE, stream_id);
 	fmt.fmt_blk.fmt_blk_size = sizeof(fmt) - sizeof(fmt.hdr) -
@@ -2831,6 +2877,12 @@ static int __q6asm_media_format_block_multi_ch_pcm(struct audio_client *ac,
 
 	pr_debug("%s:session[%d]rate[%d]ch[%d]\n", __func__, ac->session, rate,
 		channels);
+
+	if (!rate || !channels || channels > PCM_FORMAT_MAX_NUM_CHANNEL) {
+		pr_err("%s: invalid PCM format rate %u channels %u\n",
+		       __func__, rate, channels);
+		return -EINVAL;
+	}
 
 	q6asm_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE);
 
