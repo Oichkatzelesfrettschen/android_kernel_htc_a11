@@ -558,8 +558,11 @@ static void handle_session_init_done(enum command_response cmd, void *data)
 			inst->capability.pixelprocess_capabilities =
 				call_hfi_op(hdev, get_core_capabilities);
 			inst->capability.capability_set = true;
+			/* Static mode is served by every core; a core that
+			 * lists no output allocation modes serves it alone. */
 			inst->capability.buffer_mode[CAPTURE_PORT] =
-				session_init_done->alloc_mode_out;
+				session_init_done->alloc_mode_out |
+				HAL_BUFFER_MODE_STATIC;
 		} else {
 			/* The compressed format sits on the input (OUTPUT) port of
 			 * a decoder and on the CAPTURE port of an encoder. */

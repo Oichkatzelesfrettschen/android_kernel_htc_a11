@@ -1666,9 +1666,14 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 			rc = -ENOTSUPP;
 			break;
 		}
-		property_id = HAL_PARAM_BUFFER_ALLOC_MODE;
 		alloc_mode.buffer_mode = get_buf_type(ctrl->val);
 		alloc_mode.buffer_type = HAL_BUFFER_INPUT;
+		/* Static mode is the session default and needs no property. */
+		if (alloc_mode.buffer_mode == HAL_BUFFER_MODE_STATIC &&
+			inst->buffer_mode_set[OUTPUT_PORT] ==
+				HAL_BUFFER_MODE_STATIC)
+			break;
+		property_id = HAL_PARAM_BUFFER_ALLOC_MODE;
 		inst->buffer_mode_set[OUTPUT_PORT] = alloc_mode.buffer_mode;
 		pdata = &alloc_mode;
 		break;
@@ -1680,7 +1685,6 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		break;
 	}
 	case V4L2_CID_MPEG_VIDC_VIDEO_ALLOC_MODE_OUTPUT:
-		property_id = HAL_PARAM_BUFFER_ALLOC_MODE;
 		alloc_mode.buffer_mode = get_buf_type(ctrl->val);
 		if (!(alloc_mode.buffer_mode &
 			inst->capability.buffer_mode[CAPTURE_PORT])) {
@@ -1697,6 +1701,12 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 				break;
 		}
 		alloc_mode.buffer_type = HAL_BUFFER_OUTPUT;
+		/* Static mode is the session default and needs no property. */
+		if (alloc_mode.buffer_mode == HAL_BUFFER_MODE_STATIC &&
+			inst->buffer_mode_set[CAPTURE_PORT] ==
+				HAL_BUFFER_MODE_STATIC)
+			break;
+		property_id = HAL_PARAM_BUFFER_ALLOC_MODE;
 		pdata = &alloc_mode;
 		inst->buffer_mode_set[CAPTURE_PORT] = alloc_mode.buffer_mode;
 		break;
