@@ -691,9 +691,9 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 	case FORMAT_LINEAR_PCM:
 		pr_debug("FORMAT_LINEAR_PCM SR %d, CH %d",
 				prtd->sample_rate, prtd->num_channels);
-		ret = q6asm_media_format_block_pcm_format_support(
+		ret = q6asm_stream_media_format_block_pcm_format_support(
 			prtd->audio_client, prtd->sample_rate,
-			prtd->num_channels, prtd->pcm_bits);
+			prtd->num_channels, prtd->pcm_bits, stream_id);
 
 		if (ret < 0)
 			pr_err("PCM Format block failed = %d\n", ret);

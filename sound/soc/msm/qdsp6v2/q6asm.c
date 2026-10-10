@@ -2795,6 +2795,31 @@ int q6asm_media_format_block_pcm_format_support(struct audio_client *ac,
 				channels, bits_per_sample);
 }
 
+int q6asm_stream_media_format_block_pcm_format_support(
+				struct audio_client *ac, uint32_t rate,
+				uint32_t channels, uint16_t bits_per_sample,
+				int stream_id)
+{
+	struct asm_multi_channel_pcm_fmt_blk_v2 fmt;
+
+	pr_debug("%s: session[%d] rate[%d] ch[%d] bits[%d] stream_id[%d]\n",
+		 __func__, ac->session, rate, channels, bits_per_sample,
+		 stream_id);
+
+	memset(&fmt, 0, sizeof(fmt));
+	q6asm_stream_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE, stream_id);
+	fmt.fmt_blk.fmt_blk_size = sizeof(fmt) - sizeof(fmt.hdr) -
+					sizeof(fmt.fmt_blk);
+	fmt.num_channels = channels;
+	fmt.bits_per_sample = bits_per_sample;
+	fmt.sample_rate = rate;
+	fmt.is_signed = 1;
+	if (q6asm_map_channels(fmt.channel_mapping, channels))
+		return -EINVAL;
+
+	return q6asm_stream_fmt_update(ac, &fmt.hdr, stream_id, __func__);
+}
+
 static int __q6asm_media_format_block_multi_ch_pcm(struct audio_client *ac,
 				uint32_t rate, uint32_t channels,
 				bool use_default_chmap, char *channel_map,
