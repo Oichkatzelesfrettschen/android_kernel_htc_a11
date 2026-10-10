@@ -159,6 +159,8 @@ struct audio_client {
 	int                    session;
 	app_cb		       cb;
 	atomic_t	       cmd_state;
+	/* ADSP_E* status of the last APR_BASIC_RSP_RESULT; 0 when accepted */
+	atomic_t	       cmd_status;
 	
 	atomic_t	       time_flag;
 	atomic_t	       nowait_cmd_cnt;

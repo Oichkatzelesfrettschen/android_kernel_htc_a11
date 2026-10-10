@@ -591,7 +591,7 @@ static int msm_compr_configure_dsp(struct snd_compr_stream *cstream)
 				prtd->gapless_state.use_dsp_gapless_mode);
 	if (ret < 0) {
 		pr_err("%s: Session out open failed\n", __func__);
-		 return -ENOMEM;
+		return ret;
 	}
 
 	stream_index = STREAM_ARRAY_INDEX(ac->stream_id);

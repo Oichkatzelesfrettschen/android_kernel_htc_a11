@@ -6848,6 +6848,8 @@ struct afe_param_id_clip_bank_sel {
 #define ADSP_ENOMEMORY     0x00000014
 /* Item does not exist. */
 #define ADSP_ENOTEXIST      0x00000015
+/* One past the highest ADSP_E* code that indexes the error table. */
+#define ADSP_ERR_MAX        (ADSP_ENOTEXIST + 1)
 /* Operation is finished. */
 #define ADSP_ETERMINATED    0x00011174
 

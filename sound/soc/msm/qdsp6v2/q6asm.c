@@ -40,6 +40,7 @@
 #include <sound/apr_audio-v2.h>
 #include <sound/q6asm-v2.h>
 #include <sound/q6audio-v2.h>
+#include <sound/adsp_err.h>
 
 #include "audio_acdb.h"
 
@@ -894,6 +895,7 @@ struct audio_client *q6asm_audio_client_alloc(app_cb cb, void *priv)
 		spin_lock_init(&ac->port[lcnt].dsp_lock);
 	}
 	atomic_set(&ac->cmd_state, 0);
+	atomic_set(&ac->cmd_status, 0);
 	atomic_set(&ac->nowait_cmd_cnt, 0);
 
 	send_asm_custom_topology(ac);
@@ -1312,6 +1314,9 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 		pr_debug("%s:Payload = [0x%x]stat[0x%x]\n",
 				__func__, payload[0], payload[1]);
 			if (atomic_read(&ac->cmd_state) && wakeup_flag) {
+				/* The status of the response that releases the waiter. */
+				atomic_set(&ac->cmd_status, payload[1]);
+				smp_wmb();
 				atomic_set(&ac->cmd_state, 0);
 				wake_up(&ac->cmd_wait);
 			}
@@ -1696,6 +1701,25 @@ static void q6asm_add_mmaphdr(struct audio_client *ac, struct apr_hdr *hdr,
 	hdr->pkt_size  = pkt_size;
 	return;
 }
+/*
+ * q6asm_cmd_status() returns the errno for the ADSP_E* status the DSP put in
+ * the APR_BASIC_RSP_RESULT of the synchronous command that just completed, or
+ * 0 when the DSP accepted it. The callback stores cmd_status before it clears
+ * cmd_state, so the read follows a wait on cmd_state == 0.
+ */
+static int q6asm_cmd_status(struct audio_client *ac, const char *caller)
+{
+	uint32_t status;
+
+	smp_rmb();
+	status = atomic_read(&ac->cmd_status);
+	if (!status)
+		return 0;
+	pr_err("%s: DSP returned error[%s] 0x%x\n", caller,
+	       adsp_err_get_err_str(status), status);
+	return adsp_err_get_lnx_err_code(status);
+}
+
 static int __q6asm_open_read(struct audio_client *ac,
 		uint32_t format, uint16_t bits_per_sample)
 {
@@ -1812,6 +1836,7 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 
 	pr_info("%s: token = 0x%x, stream_id  %d, session 0x%x\n",
 		 __func__, open.hdr.token, stream_id, ac->session);
+	atomic_set(&ac->cmd_status, 0);
 	open.hdr.opcode = ASM_STREAM_CMD_OPEN_WRITE_V3;
 	open.mode_flags = 0x00;
 
@@ -1889,6 +1914,9 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 			rc);
 		goto fail_cmd;
 	}
+	rc = q6asm_cmd_status(ac, __func__);
+	if (rc)
+		return rc;
 	ac->io_mode |= TUN_WRITE_IO_MODE;
 	return 0;
 fail_cmd:
