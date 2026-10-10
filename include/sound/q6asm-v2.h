@@ -45,6 +45,11 @@
 #define FORMAT_AC3          0x0013
 #define FORMAT_EAC3         0x0014
 #define FORMAT_MP2          0x0015
+#define FORMAT_FLAC         0x0016
+#define FORMAT_ALAC         0x0017
+#define FORMAT_VORBIS       0x0018
+#define FORMAT_APE          0x0019
+#define FORMAT_DTS          0x001c
 
 #define ENCDEC_SBCBITRATE   0x0001
 #define ENCDEC_IMMEDIATE_DECODE 0x0002
@@ -159,6 +164,8 @@ struct audio_client {
 	int                    session;
 	app_cb		       cb;
 	atomic_t	       cmd_state;
+	/* ADSP_E* status of the last APR_BASIC_RSP_RESULT; 0 when accepted */
+	atomic_t	       cmd_status;
 	
 	atomic_t	       time_flag;
 	atomic_t	       nowait_cmd_cnt;
@@ -326,6 +333,11 @@ int q6asm_media_format_block_pcm_format_support(struct audio_client *ac,
 			uint32_t rate, uint32_t channels,
 			uint16_t bits_per_sample);
 
+int q6asm_stream_media_format_block_pcm_format_support(
+			struct audio_client *ac, uint32_t rate,
+			uint32_t channels, uint16_t bits_per_sample,
+			int stream_id);
+
 int q6asm_media_format_block_multi_ch_pcm(struct audio_client *ac,
 			uint32_t rate, uint32_t channels,
 			bool use_default_chmap, char *channel_map);
@@ -348,11 +360,32 @@ int q6asm_media_format_block_multi_aac(struct audio_client *ac,
 int q6asm_media_format_block_wma(struct audio_client *ac,
 			void *cfg);
 
+int q6asm_stream_media_format_block_wma(struct audio_client *ac,
+			struct asm_wma_cfg *cfg, int stream_id);
+
 int q6asm_media_format_block_wmapro(struct audio_client *ac,
 			void *cfg);
 
+int q6asm_stream_media_format_block_wmapro(struct audio_client *ac,
+			struct asm_wmapro_cfg *cfg, int stream_id);
+
 int q6asm_media_format_block_amrwbplus(struct audio_client *ac,
 			struct asm_amrwbplus_cfg *cfg);
+
+int q6asm_stream_media_format_block_amrwbplus(struct audio_client *ac,
+			struct asm_amrwbplus_cfg *cfg, int stream_id);
+
+int q6asm_stream_media_format_block_flac(struct audio_client *ac,
+			struct asm_flac_cfg *cfg, int stream_id);
+
+int q6asm_stream_media_format_block_vorbis(struct audio_client *ac,
+			struct asm_vorbis_cfg *cfg, int stream_id);
+
+int q6asm_stream_media_format_block_alac(struct audio_client *ac,
+			struct asm_alac_cfg *cfg, int stream_id);
+
+int q6asm_stream_media_format_block_ape(struct audio_client *ac,
+			struct asm_ape_cfg *cfg, int stream_id);
 
 int q6asm_ds1_set_endp_params(struct audio_client *ac,
 				int param_id, int param_value);
