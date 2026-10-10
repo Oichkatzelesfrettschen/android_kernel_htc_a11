@@ -57,6 +57,8 @@
 #define MP3_OUTPUT_FRAME_SZ		1152
 #define AAC_OUTPUT_FRAME_SZ		1024
 #define DSP_NUM_OUTPUT_FRAME_BUFFERED	2
+/* Upper bound on a client-supplied decoder frame length used for timing. */
+#define DSP_MAX_OUTPUT_FRAME_SZ		0xFFFF
 
 #define COMPR_PLAYBACK_MIN_FRAGMENT_SIZE (8 * 1024)
 
@@ -463,31 +465,33 @@ static void compr_event_handler(uint32_t opcode,
 	}
 }
 
+/* compr_cap_add_codec() appends @codec to the advertised list. */
+static void compr_cap_add_codec(struct snd_compr_caps *cap, uint32_t codec)
+{
+	if (WARN_ON(cap->num_codecs >= MAX_NUM_CODECS))
+		return;
+	cap->codecs[cap->num_codecs++] = codec;
+}
+
 static void populate_codec_list(struct msm_compr_audio *prtd)
 {
+	struct snd_compr_caps *cap = &prtd->compr_cap;
+
 	pr_debug("%s\n", __func__);
-	prtd->compr_cap.direction = SND_COMPRESS_PLAYBACK;
-	prtd->compr_cap.min_fragment_size =
-			COMPR_PLAYBACK_MIN_FRAGMENT_SIZE;
-	prtd->compr_cap.max_fragment_size =
-			COMPR_PLAYBACK_MAX_FRAGMENT_SIZE;
-	prtd->compr_cap.min_fragments =
-			COMPR_PLAYBACK_MIN_NUM_FRAGMENTS;
-	prtd->compr_cap.max_fragments =
-			COMPR_PLAYBACK_MAX_NUM_FRAGMENTS;
+	cap->direction = SND_COMPRESS_PLAYBACK;
+	cap->min_fragment_size = COMPR_PLAYBACK_MIN_FRAGMENT_SIZE;
+	cap->max_fragment_size = COMPR_PLAYBACK_MAX_FRAGMENT_SIZE;
+	cap->min_fragments = COMPR_PLAYBACK_MIN_NUM_FRAGMENTS;
+	cap->max_fragments = COMPR_PLAYBACK_MAX_NUM_FRAGMENTS;
+	cap->num_codecs = 0;
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_MP3);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_AAC);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_AC3);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_EAC3);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_MP2);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_FLAC);
 #ifdef CONFIG_HD_AUDIO
-	prtd->compr_cap.num_codecs = 6;
-#else
-	prtd->compr_cap.num_codecs = 5;
-#endif
-	prtd->compr_cap.codecs[0] = SND_AUDIOCODEC_MP3;
-	prtd->compr_cap.codecs[1] = SND_AUDIOCODEC_AAC;
-	prtd->compr_cap.codecs[2] = SND_AUDIOCODEC_AC3;
-	prtd->compr_cap.codecs[3] = SND_AUDIOCODEC_EAC3;
-	prtd->compr_cap.codecs[4] = SND_AUDIOCODEC_MP2;
-#ifdef CONFIG_HD_AUDIO
-	
-	prtd->compr_cap.codecs[5] = SND_AUDIOCODEC_PCM;
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_PCM);
 #endif
 }
 
@@ -497,6 +501,8 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 	struct snd_compr_runtime *runtime = cstream->runtime;
 	struct msm_compr_audio *prtd = runtime->private_data;
 	struct asm_aac_cfg aac_cfg;
+	struct asm_flac_cfg flac_cfg;
+	const union snd_codec_options *opts = &prtd->codec_param.codec.options;
 	int ret = 0;
 
 	switch (prtd->codec) {
@@ -527,6 +533,22 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 	case FORMAT_AC3:
 		break;
 	case FORMAT_EAC3:
+		break;
+	case FORMAT_FLAC:
+		memset(&flac_cfg, 0x0, sizeof(struct asm_flac_cfg));
+		flac_cfg.ch_cfg = prtd->num_channels;
+		flac_cfg.sample_rate = prtd->sample_rate;
+		flac_cfg.stream_info_present = 1;
+		flac_cfg.sample_size = opts->flac_dec.sample_size;
+		flac_cfg.min_blk_size = opts->flac_dec.min_blk_size;
+		flac_cfg.max_blk_size = opts->flac_dec.max_blk_size;
+		flac_cfg.min_frame_size = opts->flac_dec.min_frame_size;
+		flac_cfg.max_frame_size = opts->flac_dec.max_frame_size;
+		ret = q6asm_stream_media_format_block_flac(prtd->audio_client,
+							   &flac_cfg, stream_id);
+		if (ret < 0)
+			pr_err("%s: CMD Format block failed ret %d\n",
+			       __func__, ret);
 		break;
 #ifdef CONFIG_HD_AUDIO
 	case FORMAT_LINEAR_PCM:
@@ -912,6 +934,15 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 		prtd->codec = FORMAT_MP2;
 		/* A Layer II frame carries 1152 samples, as a Layer III frame does. */
 		frame_sz = MP3_OUTPUT_FRAME_SZ;
+		break;
+	}
+
+	case SND_AUDIOCODEC_FLAC: {
+		pr_debug("SND_AUDIOCODEC_FLAC\n");
+		prtd->codec = FORMAT_FLAC;
+		/* The DSP buffers in blocks; the smallest block bounds the wait. */
+		frame_sz = min_t(uint32_t, DSP_MAX_OUTPUT_FRAME_SZ,
+			prtd->codec_param.codec.options.flac_dec.min_blk_size);
 		break;
 	}
 
@@ -1605,6 +1636,15 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 	case SND_AUDIOCODEC_EAC3:
 		break;
 	case SND_AUDIOCODEC_MP2:
+		break;
+	case SND_AUDIOCODEC_FLAC:
+		codec->num_descriptors = 1;
+		codec->descriptor[0].max_ch = 2;
+		codec->descriptor[0].sample_rates = SNDRV_PCM_RATE_8000_48000;
+		codec->descriptor[0].num_bitrates = 0;
+		codec->descriptor[0].profiles = 0;
+		codec->descriptor[0].modes = 0;
+		codec->descriptor[0].formats = SND_AUDIOSTREAMFORMAT_FLAC;
 		break;
 #ifdef CONFIG_HD_AUDIO
 	case SND_AUDIOCODEC_PCM:

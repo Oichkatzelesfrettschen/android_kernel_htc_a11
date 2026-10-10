@@ -1720,6 +1720,38 @@ static int q6asm_cmd_status(struct audio_client *ac, const char *caller)
 	return adsp_err_get_lnx_err_code(status);
 }
 
+/*
+ * q6asm_stream_fmt_update() sends a media format block for @stream_id and
+ * waits for the DSP to accept it. The caller has run q6asm_stream_add_hdr()
+ * with a command flag, which arms cmd_state, and has filled fmtblk.
+ * On a compressed stream the token carries the session and stream id so the
+ * event handler of a gapless next track can tell the streams apart.
+ */
+static int q6asm_stream_fmt_update(struct audio_client *ac,
+				   struct apr_hdr *hdr, int stream_id,
+				   const char *caller)
+{
+	int rc;
+
+	if (ac->io_mode & COMPRESSED_STREAM_IO)
+		hdr->token = ((ac->session << 8) & 0xFFFF00) |
+			     (stream_id & 0xFF);
+	hdr->opcode = ASM_DATA_CMD_MEDIA_FMT_UPDATE_V2;
+	atomic_set(&ac->cmd_status, 0);
+	rc = apr_send_pkt(ac->apr, (uint32_t *)hdr);
+	if (rc < 0) {
+		pr_err("%s: media format update failed %d\n", caller, rc);
+		return rc;
+	}
+	rc = wait_event_timeout(ac->cmd_wait,
+				(atomic_read(&ac->cmd_state) == 0), 5*HZ);
+	if (!rc) {
+		pr_err("%s: timeout. waited for FORMAT_UPDATE\n", caller);
+		return -ETIMEDOUT;
+	}
+	return q6asm_cmd_status(ac, caller);
+}
+
 static int __q6asm_open_read(struct audio_client *ac,
 		uint32_t format, uint16_t bits_per_sample)
 {
@@ -1890,6 +1922,9 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 		break;
 	case FORMAT_MP2:
 		open.dec_fmt_id = ASM_MEDIA_FMT_MP2;
+		break;
+	case FORMAT_FLAC:
+		open.dec_fmt_id = ASM_MEDIA_FMT_FLAC;
 		break;
 	case FORMAT_AC3:
 		open.dec_fmt_id = ASM_MEDIA_FMT_EAC3_DEC;
@@ -2996,6 +3031,31 @@ int q6asm_media_format_block_amrwbplus(struct audio_client *ac,
 	return 0;
 fail_cmd:
 	return -EINVAL;
+}
+
+int q6asm_stream_media_format_block_flac(struct audio_client *ac,
+				struct asm_flac_cfg *cfg, int stream_id)
+{
+	struct asm_flac_fmt_blk_v2 fmt;
+
+	pr_debug("%s: session[%d] rate[%d] ch[%d] size[%d] stream_id[%d]\n",
+		 __func__, ac->session, cfg->sample_rate, cfg->ch_cfg,
+		 cfg->sample_size, stream_id);
+
+	memset(&fmt, 0, sizeof(fmt));
+	q6asm_stream_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE, stream_id);
+	fmt.fmtblk.fmt_blk_size = sizeof(fmt) - sizeof(fmt.hdr) -
+				  sizeof(fmt.fmtblk);
+	fmt.is_stream_info_present = cfg->stream_info_present;
+	fmt.num_channels = cfg->ch_cfg;
+	fmt.min_blk_size = cfg->min_blk_size;
+	fmt.max_blk_size = cfg->max_blk_size;
+	fmt.sample_rate = cfg->sample_rate;
+	fmt.min_frame_size = cfg->min_frame_size;
+	fmt.max_frame_size = cfg->max_frame_size;
+	fmt.sample_size = cfg->sample_size;
+
+	return q6asm_stream_fmt_update(ac, &fmt.hdr, stream_id, __func__);
 }
 
 int q6asm_ds1_set_endp_params(struct audio_client *ac,

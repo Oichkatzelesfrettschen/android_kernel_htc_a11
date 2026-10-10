@@ -2419,6 +2419,19 @@ struct asm_amrwbplus_cfg {
 	u32  amr_lsf_idx;
 } __packed;
 
+struct asm_flac_cfg {
+	u32 sample_rate;
+	u32 ext_sample_rate;
+	u32 min_frame_size;
+	u32 max_frame_size;
+	u16 stream_info_present;
+	u16 min_blk_size;
+	u16 max_blk_size;
+	u16 ch_cfg;
+	u16 sample_size;
+	u16 md5_sum;
+};
+
 struct asm_softpause_params {
 	u32 enable;
 	u32 period;
@@ -3153,6 +3166,49 @@ struct asm_wmastdv8_enc_cfg {
 
 /* MPEG-1/2 Audio Layer II decoder media format. */
 #define ASM_MEDIA_FMT_MP2                          0x00010DE9
+
+/* FLAC decoder media format. */
+#define ASM_MEDIA_FMT_FLAC                         0x00010C16
+
+struct asm_flac_fmt_blk_v2 {
+	struct apr_hdr hdr;
+	struct asm_data_cmd_media_fmt_update_v2 fmtblk;
+
+	u16 is_stream_info_present;
+/* 1 when the fields below carry the parsed stream information, 0 when the
+ * decoder reads them from the stream.
+ */
+
+	u16 num_channels;
+/* Number of channels for decoding. Supported values: 1 to 2. */
+
+	u16 min_blk_size;
+/* Minimum block size in samples; at most max_blk_size. */
+
+	u16 max_blk_size;
+/* Maximum block size in samples; equal to min_blk_size for a fixed block
+ * size stream.
+ */
+
+	u16 md5_sum[8];
+/* MD5 signature of the unencoded audio data. */
+
+	u32 sample_rate;
+/* Samples per second. Supported values: 8000 to 48000 Hz. */
+
+	u32 min_frame_size;
+/* Minimum frame size in bytes; 0 when unknown. */
+
+	u32 max_frame_size;
+/* Maximum frame size in bytes; 0 when unknown. */
+
+	u16 sample_size;
+/* Bits per sample. Supported values: 8, 16. */
+
+	u16 reserved;
+/* Clients must set this field to zero. */
+
+} __packed;
 
 struct asm_amrwbplus_fmt_blk_v2 {
 	struct apr_hdr hdr;
