@@ -31,9 +31,13 @@
 			label = "secure_mem";
 		};
 
+		/* 56 MiB CMA region behind ION heap 22: the q6 core's client
+		 * buffers (4 input buffers of 1777664 bytes, up to 11 output
+		 * buffers of 4227072 bytes at 720p) must be physically
+		 * contiguous in this region. */
 		adsp_mem: adsp_region {
 			linux,contiguous-region;
-			reg = <0 0x2a00000>;
+			reg = <0 0x3800000>;
 			label = "adsp_mem";
 		};
 	};
