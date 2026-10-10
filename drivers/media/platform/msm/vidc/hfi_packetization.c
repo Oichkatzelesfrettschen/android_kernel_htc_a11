@@ -1368,6 +1368,43 @@ int create_pkt_cmd_session_set_property(
 		pkt->size += sizeof(u32) + sizeof(struct hfi_enable);
 		break;
 	}
+	case HAL_PARAM_VENC_H264_VUI_BITSTREAM_RESTRC:
+	case HAL_PARAM_VENC_PRESERVE_TEXT_QUALITY:
+	case HAL_PARAM_VENC_DISABLE_RC_TIMESTAMP:
+	{
+		struct hfi_enable *hfi;
+
+		switch (ptype) {
+		case HAL_PARAM_VENC_H264_VUI_BITSTREAM_RESTRC:
+			pkt->rg_property_data[0] =
+				HFI_PROPERTY_PARAM_VENC_H264_VUI_BITSTREAM_RESTRC;
+			break;
+		case HAL_PARAM_VENC_PRESERVE_TEXT_QUALITY:
+			pkt->rg_property_data[0] =
+				HFI_PROPERTY_PARAM_VENC_PRESERVE_TEXT_QUALITY;
+			break;
+		default:
+			pkt->rg_property_data[0] =
+				HFI_PROPERTY_PARAM_VENC_DISABLE_RC_TIMESTAMP;
+			break;
+		}
+		hfi = (struct hfi_enable *) &pkt->rg_property_data[1];
+		hfi->enable = ((struct hal_enable *) pdata)->enable;
+		pkt->size += sizeof(u32) + sizeof(struct hfi_enable);
+		break;
+	}
+	case HAL_PARAM_VENC_HIER_P_MAX_ENH_LAYERS:
+		pkt->rg_property_data[0] =
+			HFI_PROPERTY_PARAM_VENC_HIER_P_MAX_NUM_ENH_LAYER;
+		pkt->rg_property_data[1] = *(u32 *) pdata;
+		pkt->size += sizeof(u32) * 2;
+		break;
+	case HAL_CONFIG_VENC_HIER_P_NUM_FRAMES:
+		pkt->rg_property_data[0] =
+			HFI_PROPERTY_CONFIG_VENC_HIER_P_ENH_LAYER;
+		pkt->rg_property_data[1] = *(u32 *) pdata;
+		pkt->size += sizeof(u32) * 2;
+		break;
 	case HAL_PARAM_VENC_H264_VUI_TIMING_INFO:
 	{
 		struct hfi_h264_vui_timing_info *hfi;

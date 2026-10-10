@@ -1007,7 +1007,7 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 
 	
 	/* ch_in is zero when the stream carries its channel count in-band;
-	 * the stream keeps the stereo default from open in that case. */
+	 * the stream keeps its current channel count in that case. */
 	if (prtd->codec_param.codec.ch_in)
 		prtd->num_channels = prtd->codec_param.codec.ch_in;
 
