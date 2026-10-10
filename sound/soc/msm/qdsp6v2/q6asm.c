@@ -2459,11 +2459,11 @@ fail_cmd:
 	return -EINVAL;
 }
 
-/* The channel maps below cover 1-6 and 8 channels; the ASM PCM format blocks
- * carry PCM_FORMAT_MAX_NUM_CHANNEL map entries. */
+/* The channel maps below cover 1 to 8 channels, the range the ASM PCM format blocks
+ * accept; each block carries PCM_FORMAT_MAX_NUM_CHANNEL map entries. */
 bool q6asm_pcm_channels_supported(uint32_t channels)
 {
-	return (channels >= 1 && channels <= 6) || channels == 8;
+	return channels >= 1 && channels <= 8;
 }
 EXPORT_SYMBOL(q6asm_pcm_channels_supported);
 
@@ -2508,6 +2508,18 @@ static int q6asm_map_channels(u8 *channel_mapping, uint32_t channels)
 		channel_mapping[3] = PCM_CHANNEL_LFE;
 		channel_mapping[4] = PCM_CHANNEL_LS;
 		channel_mapping[5] = PCM_CHANNEL_RS;
+		break;
+	case 7:
+		/* 6.1: the 5.1 layout plus back center, the order of
+		 * AUDIO_CHANNEL_OUT_6POINT1. The ASM PCM format block accepts
+		 * 1 to 8 channels. */
+		channel_mapping[0] = PCM_CHANNEL_FL;
+		channel_mapping[1] = PCM_CHANNEL_FR;
+		channel_mapping[2] = PCM_CHANNEL_FC;
+		channel_mapping[3] = PCM_CHANNEL_LFE;
+		channel_mapping[4] = PCM_CHANNEL_LS;
+		channel_mapping[5] = PCM_CHANNEL_RS;
+		channel_mapping[6] = PCM_CHANNEL_CS;
 		break;
 	case 8:
 		channel_mapping[0] = PCM_CHANNEL_FL;
