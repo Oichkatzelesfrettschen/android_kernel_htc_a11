@@ -115,6 +115,14 @@ static int ion_cma_allocate(struct ion_heap *heap, struct ion_buffer *buffer,
 	info->table = kmalloc(sizeof(struct sg_table), GFP_KERNEL);
 	if (!info->table) {
 		dev_err(dev, "Fail to allocate sg table\n");
+		/* The region returns before the failure is counted, so used
+		 * and peak describe only buffers ION still holds. */
+		if (!ION_IS_CACHED(flags))
+			dma_free_writecombine(dev, len, info->cpu_addr,
+					      info->handle);
+		else
+			dma_free_noncoherent(dev, len, info->cpu_addr,
+					     info->handle);
 		goto err;
 	}
 

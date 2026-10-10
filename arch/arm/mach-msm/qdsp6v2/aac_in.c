@@ -213,8 +213,10 @@ static long aac_in_ioctl(struct file *file,
 		 * input: the encoder's rate and channel count (CH_MODE_MONO
 		 * and CH_MODE_STEREO equal the counts 1 and 2) unless
 		 * AUDIO_SET_CONFIG declares otherwise. */
-		audio->pcm_cfg.sample_rate = enc_cfg->sample_rate;
-		audio->pcm_cfg.channel_count = enc_cfg->channels;
+		if (!audio->pcm_rate_explicit)
+			audio->pcm_cfg.sample_rate = enc_cfg->sample_rate;
+		if (!audio->pcm_channels_explicit)
+			audio->pcm_cfg.channel_count = enc_cfg->channels;
 		enc_cfg->bit_rate = cfg.bit_rate;
 		enc_cfg->stream_format =
 			((cfg.stream_format == AUDIO_AAC_FORMAT_RAW) ? \

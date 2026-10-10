@@ -131,7 +131,9 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			/* The configuration names the channel count; the
 			 * output rate stays at the AUDIO_SET_CONFIG value. */
 			wbplus_cfg = audio->codec_cfg;
-			if (q6asm_pcm_channels_supported(wbplus_cfg->num_channels))
+			if (!audio->pcm_channels_explicit &&
+			    q6asm_pcm_channels_supported(
+					wbplus_cfg->num_channels))
 				audio->pcm_cfg.channel_count =
 					wbplus_cfg->num_channels;
 			} else {

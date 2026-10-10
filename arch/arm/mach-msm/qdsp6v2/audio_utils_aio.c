@@ -1441,10 +1441,14 @@ long audio_aio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 		audio->pcm_cfg.buffer_count = config.buffer_count;
 		audio->pcm_cfg.buffer_size = config.buffer_size;
-		if (config.channel_count)
+		if (config.channel_count) {
 			audio->pcm_cfg.channel_count = config.channel_count;
-		if (config.sample_rate)
+			audio->pcm_channels_explicit = true;
+		}
+		if (config.sample_rate) {
 			audio->pcm_cfg.sample_rate = config.sample_rate;
+			audio->pcm_rate_explicit = true;
+		}
 		rc = 0;
 		mutex_unlock(&audio->lock);
 		break;

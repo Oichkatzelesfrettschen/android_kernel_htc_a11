@@ -360,10 +360,14 @@ long audio_in_ioctl(struct file *file,
 
 		audio->pcm_cfg.buffer_count = cfg.buffer_count;
 		audio->pcm_cfg.buffer_size  = cfg.buffer_size;
-		if (cfg.channel_count)
+		if (cfg.channel_count) {
 			audio->pcm_cfg.channel_count = cfg.channel_count;
-		if (cfg.sample_rate)
+			audio->pcm_channels_explicit = true;
+		}
+		if (cfg.sample_rate) {
 			audio->pcm_cfg.sample_rate = cfg.sample_rate;
+			audio->pcm_rate_explicit = true;
+		}
 		if(audio->opened && audio->feedback == NON_TUNNEL_MODE){
 			rc = q6asm_audio_client_buf_alloc(IN, audio->ac,
 				ALIGN_BUF_SIZE(audio->pcm_cfg.buffer_size),

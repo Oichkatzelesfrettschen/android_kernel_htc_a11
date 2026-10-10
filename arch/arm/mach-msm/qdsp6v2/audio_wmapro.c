@@ -155,9 +155,10 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		/* The stream header names the decoded format; it is the PCM
 		 * block's rate and channel count until AUDIO_SET_CONFIG
 		 * declares otherwise. */
-		if (q6asm_pcm_channels_supported(wmapro_config->numchannels))
+		if (!audio->pcm_channels_explicit &&
+		    q6asm_pcm_channels_supported(wmapro_config->numchannels))
 			audio->pcm_cfg.channel_count = wmapro_config->numchannels;
-		if (wmapro_config->samplingrate)
+		if (!audio->pcm_rate_explicit && wmapro_config->samplingrate)
 			audio->pcm_cfg.sample_rate = wmapro_config->samplingrate;
 		break;
 	}
