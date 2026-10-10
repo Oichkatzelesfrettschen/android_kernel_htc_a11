@@ -344,6 +344,9 @@ static int __devinit hall_sensor_probe(struct platform_device *pdev)
 
 	if (hl->att_used > 1) {
 		prev_val_s = gpio_get_value(hl->gpio_att_s);
+		/* SW_LID follows the S-pole GPIO: low (magnet near) is a closed cover. */
+		input_report_switch(hl->input_dev, SW_LID, !prev_val_s);
+		input_sync(hl->input_dev);
 		ret = request_threaded_irq(gpio_to_irq(hl->gpio_att_s), NULL, hall_spole_irq_thread,
 				prev_val_s? IRQF_TRIGGER_LOW|IRQF_ONESHOT : IRQF_TRIGGER_HIGH|IRQF_ONESHOT, "ak8789_att_s", hl);
 		if (ret == 0)
