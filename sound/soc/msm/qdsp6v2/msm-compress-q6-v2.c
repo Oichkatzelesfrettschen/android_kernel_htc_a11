@@ -494,6 +494,11 @@ static void populate_codec_list(struct msm_compr_audio *prtd)
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_APE);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_WMA);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_WMA_PRO);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_AMR);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_AMRWB);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_AMRWBPLUS);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_QCELP);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_EVRC);
 #ifdef CONFIG_HD_AUDIO
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_PCM);
 #endif
@@ -525,6 +530,7 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 	struct asm_ape_cfg ape_cfg;
 	struct asm_wma_cfg wma_cfg;
 	struct asm_wmapro_cfg wma_pro_cfg;
+	struct asm_amrwbplus_cfg amrwbplus_cfg;
 	const union snd_codec_options *opts = &prtd->codec_param.codec.options;
 	int ret = 0;
 
@@ -603,6 +609,22 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 		wma_pro_cfg.adv_encode_opt2 = opts->wma.encodeopt2;
 		ret = q6asm_stream_media_format_block_wmapro(
 				prtd->audio_client, &wma_pro_cfg, stream_id);
+		if (ret < 0)
+			pr_err("%s: CMD Format block failed ret %d\n",
+			       __func__, ret);
+		break;
+	case FORMAT_AMRNB:
+	case FORMAT_AMRWB:
+	case FORMAT_V13K:
+	case FORMAT_EVRC:
+		/* These decoders read each frame's mode from its TOC byte. */
+		break;
+	case FORMAT_AMR_WB_PLUS:
+		memset(&amrwbplus_cfg, 0x0, sizeof(struct asm_amrwbplus_cfg));
+		amrwbplus_cfg.num_channels = prtd->num_channels;
+		amrwbplus_cfg.amr_frame_fmt = opts->amrwbplus.bit_stream_fmt;
+		ret = q6asm_stream_media_format_block_amrwbplus(
+				prtd->audio_client, &amrwbplus_cfg, stream_id);
 		if (ret < 0)
 			pr_err("%s: CMD Format block failed ret %d\n",
 			       __func__, ret);
@@ -1050,6 +1072,36 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 	case SND_AUDIOCODEC_WMA_PRO: {
 		pr_debug("SND_AUDIOCODEC_WMA_PRO\n");
 		prtd->codec = FORMAT_WMA_V10PRO;
+		break;
+	}
+
+	case SND_AUDIOCODEC_AMR: {
+		pr_debug("SND_AUDIOCODEC_AMR\n");
+		prtd->codec = FORMAT_AMRNB;
+		break;
+	}
+
+	case SND_AUDIOCODEC_AMRWB: {
+		pr_debug("SND_AUDIOCODEC_AMRWB\n");
+		prtd->codec = FORMAT_AMRWB;
+		break;
+	}
+
+	case SND_AUDIOCODEC_AMRWBPLUS: {
+		pr_debug("SND_AUDIOCODEC_AMRWBPLUS\n");
+		prtd->codec = FORMAT_AMR_WB_PLUS;
+		break;
+	}
+
+	case SND_AUDIOCODEC_QCELP: {
+		pr_debug("SND_AUDIOCODEC_QCELP\n");
+		prtd->codec = FORMAT_V13K;
+		break;
+	}
+
+	case SND_AUDIOCODEC_EVRC: {
+		pr_debug("SND_AUDIOCODEC_EVRC\n");
+		prtd->codec = FORMAT_EVRC;
 		break;
 	}
 
@@ -1769,6 +1821,36 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 		codec->descriptor[0].profiles = 0;
 		codec->descriptor[0].modes = 0;
 		codec->descriptor[0].formats = SND_AUDIOSTREAMFORMAT_FLAC;
+		break;
+	case SND_AUDIOCODEC_AMR:
+	case SND_AUDIOCODEC_QCELP:
+	case SND_AUDIOCODEC_EVRC:
+		codec->num_descriptors = 1;
+		codec->descriptor[0].max_ch = 1;
+		codec->descriptor[0].sample_rates = SNDRV_PCM_RATE_8000;
+		codec->descriptor[0].num_bitrates = 0;
+		codec->descriptor[0].profiles = 0;
+		codec->descriptor[0].modes = 0;
+		codec->descriptor[0].formats = 0;
+		break;
+	case SND_AUDIOCODEC_AMRWB:
+		codec->num_descriptors = 1;
+		codec->descriptor[0].max_ch = 1;
+		codec->descriptor[0].sample_rates = SNDRV_PCM_RATE_16000;
+		codec->descriptor[0].num_bitrates = 0;
+		codec->descriptor[0].profiles = 0;
+		codec->descriptor[0].modes = 0;
+		codec->descriptor[0].formats = 0;
+		break;
+	case SND_AUDIOCODEC_AMRWBPLUS:
+		codec->num_descriptors = 1;
+		codec->descriptor[0].max_ch = 2;
+		codec->descriptor[0].sample_rates = SNDRV_PCM_RATE_16000 |
+			SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_48000;
+		codec->descriptor[0].num_bitrates = 0;
+		codec->descriptor[0].profiles = 0;
+		codec->descriptor[0].modes = 0;
+		codec->descriptor[0].formats = 0;
 		break;
 	case SND_AUDIOCODEC_WMA:
 	case SND_AUDIOCODEC_WMA_PRO:

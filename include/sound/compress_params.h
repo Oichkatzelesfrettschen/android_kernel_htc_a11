@@ -89,7 +89,9 @@
 #define SND_AUDIOCODEC_EAC3                  ((__u32) 0x00000018)
 #define SND_AUDIOCODEC_ALAC                  ((__u32) 0x00000019)
 #define SND_AUDIOCODEC_APE                   ((__u32) 0x0000001A)
-#define SND_AUDIOCODEC_MAX  SND_AUDIOCODEC_APE
+#define SND_AUDIOCODEC_QCELP                 ((__u32) 0x0000001B)
+#define SND_AUDIOCODEC_EVRC                  ((__u32) 0x0000001C)
+#define SND_AUDIOCODEC_MAX  SND_AUDIOCODEC_EVRC
 
 
 #define SND_AUDIOPROFILE_PCM                 ((__u32) 0x00000001)
@@ -305,6 +307,9 @@ struct snd_dec_ape {
 	__u32 sample_rate;
 	__u32 seek_table_present;
 };
+struct snd_dec_amrwbplus {
+	__u32 bit_stream_fmt;
+};
 union snd_codec_options {
 	struct snd_enc_wma wma;
 	struct snd_enc_vorbis vorbis;
@@ -316,6 +321,7 @@ union snd_codec_options {
 	struct snd_dec_flac flac_dec;
 	struct snd_dec_alac alac;
 	struct snd_dec_ape ape;
+	struct snd_dec_amrwbplus amrwbplus;
 };
 
 
