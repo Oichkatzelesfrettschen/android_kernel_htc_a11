@@ -40,8 +40,14 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		pr_debug("%s: AUDIO_START session_id[%d]\n", __func__,
 							audio->ac->session);
 		if (audio->feedback == NON_TUNNEL_MODE) {
-			/* Configure PCM output block */
-			rc = q6asm_enc_cfg_blk_pcm(audio->ac, 0, 0);
+			/* Configure PCM output block: the decoder emits its
+			 * native rate and channel count, and the channel map
+			 * is built for the channel count the client set
+			 * through AUDIO_SET_STREAM_CONFIG (q6asm_map_channels
+			 * rejects zero). */
+			rc = q6asm_enc_cfg_blk_pcm_native(audio->ac,
+					audio->pcm_cfg.sample_rate,
+					audio->pcm_cfg.channel_count);
 			if (rc < 0) {
 				pr_err("pcm output block config failed\n");
 				break;

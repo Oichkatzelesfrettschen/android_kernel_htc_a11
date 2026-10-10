@@ -498,6 +498,14 @@ struct msm_vidc_format vdec_formats[] = {
 		.num_planes = 1,
 		.get_frame_size = get_frame_size_compressed,
 		.type = OUTPUT_PORT,
+	},
+	{
+		.name = "SPARK",
+		.description = "Sorenson Spark compressed format",
+		.fourcc = V4L2_PIX_FMT_SPK,
+		.num_planes = 1,
+		.get_frame_size = get_frame_size_compressed,
+		.type = OUTPUT_PORT,
 	}
 };
 
