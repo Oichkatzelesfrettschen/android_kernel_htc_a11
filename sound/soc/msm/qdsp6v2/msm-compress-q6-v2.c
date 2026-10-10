@@ -473,6 +473,12 @@ static void compr_cap_add_codec(struct snd_compr_caps *cap, uint32_t codec)
 	cap->codecs[cap->num_codecs++] = codec;
 }
 
+/*
+ * populate_codec_list() advertises the codecs the aDSP image decodes.
+ * msm_compr_set_params() additionally starts ALAC, APE and DTS streams, so
+ * the DSP's verdict on those media format IDs reaches user space as the
+ * SNDRV_COMPRESS_SET_PARAMS errno.
+ */
 static void populate_codec_list(struct msm_compr_audio *prtd)
 {
 	struct snd_compr_caps *cap = &prtd->compr_cap;
@@ -491,8 +497,6 @@ static void populate_codec_list(struct msm_compr_audio *prtd)
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_MP2);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_FLAC);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_VORBIS);
-	compr_cap_add_codec(cap, SND_AUDIOCODEC_ALAC);
-	compr_cap_add_codec(cap, SND_AUDIOCODEC_APE);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_WMA);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_WMA_PRO);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_AMR);
@@ -620,6 +624,9 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 	case FORMAT_V13K:
 	case FORMAT_EVRC:
 		/* These decoders read each frame's mode from its TOC byte. */
+		break;
+	case FORMAT_DTS:
+		/* The DTS decoder takes no media format block. */
 		break;
 	case FORMAT_AMR_WB_PLUS:
 		memset(&amrwbplus_cfg, 0x0, sizeof(struct asm_amrwbplus_cfg));
@@ -1119,6 +1126,12 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 	case SND_AUDIOCODEC_VORBIS: {
 		pr_debug("SND_AUDIOCODEC_VORBIS\n");
 		prtd->codec = FORMAT_VORBIS;
+		break;
+	}
+
+	case SND_AUDIOCODEC_DTS: {
+		pr_debug("SND_AUDIOCODEC_DTS\n");
+		prtd->codec = FORMAT_DTS;
 		break;
 	}
 
@@ -1889,6 +1902,7 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 		codec->descriptor[0].modes = 0;
 		codec->descriptor[0].formats = 0;
 		break;
+	case SND_AUDIOCODEC_DTS:
 	case SND_AUDIOCODEC_ALAC:
 	case SND_AUDIOCODEC_APE:
 		codec->num_descriptors = 1;

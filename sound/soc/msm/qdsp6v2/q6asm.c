@@ -1936,6 +1936,9 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 	case FORMAT_APE:
 		open.dec_fmt_id = ASM_MEDIA_FMT_APE;
 		break;
+	case FORMAT_DTS:
+		open.dec_fmt_id = ASM_MEDIA_FMT_DTS;
+		break;
 	case FORMAT_AMRNB:
 		open.dec_fmt_id = ASM_MEDIA_FMT_AMRNB_FS;
 		break;
