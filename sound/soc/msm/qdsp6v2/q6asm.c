@@ -1926,6 +1926,12 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 	case FORMAT_FLAC:
 		open.dec_fmt_id = ASM_MEDIA_FMT_FLAC;
 		break;
+	case FORMAT_ALAC:
+		open.dec_fmt_id = ASM_MEDIA_FMT_ALAC;
+		break;
+	case FORMAT_APE:
+		open.dec_fmt_id = ASM_MEDIA_FMT_APE;
+		break;
 	case FORMAT_AC3:
 		open.dec_fmt_id = ASM_MEDIA_FMT_EAC3_DEC;
 		break;
@@ -3054,6 +3060,60 @@ int q6asm_stream_media_format_block_flac(struct audio_client *ac,
 	fmt.min_frame_size = cfg->min_frame_size;
 	fmt.max_frame_size = cfg->max_frame_size;
 	fmt.sample_size = cfg->sample_size;
+
+	return q6asm_stream_fmt_update(ac, &fmt.hdr, stream_id, __func__);
+}
+
+int q6asm_stream_media_format_block_alac(struct audio_client *ac,
+				struct asm_alac_cfg *cfg, int stream_id)
+{
+	struct asm_alac_fmt_blk_v2 fmt;
+
+	pr_debug("%s: session[%d] rate[%d] ch[%d] stream_id[%d]\n", __func__,
+		 ac->session, cfg->sample_rate, cfg->num_channels, stream_id);
+
+	memset(&fmt, 0, sizeof(fmt));
+	q6asm_stream_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE, stream_id);
+	fmt.fmtblk.fmt_blk_size = sizeof(fmt) - sizeof(fmt.hdr) -
+				  sizeof(fmt.fmtblk);
+	fmt.frame_length = cfg->frame_length;
+	fmt.compatible_version = cfg->compatible_version;
+	fmt.bit_depth = cfg->bit_depth;
+	fmt.pb = cfg->pb;
+	fmt.mb = cfg->mb;
+	fmt.kb = cfg->kb;
+	fmt.num_channels = cfg->num_channels;
+	fmt.max_run = cfg->max_run;
+	fmt.max_frame_bytes = cfg->max_frame_bytes;
+	fmt.avg_bit_rate = cfg->avg_bit_rate;
+	fmt.sample_rate = cfg->sample_rate;
+	fmt.channel_layout_tag = cfg->channel_layout_tag;
+
+	return q6asm_stream_fmt_update(ac, &fmt.hdr, stream_id, __func__);
+}
+
+int q6asm_stream_media_format_block_ape(struct audio_client *ac,
+				struct asm_ape_cfg *cfg, int stream_id)
+{
+	struct asm_ape_fmt_blk_v2 fmt;
+
+	pr_debug("%s: session[%d] rate[%d] ch[%d] stream_id[%d]\n", __func__,
+		 ac->session, cfg->sample_rate, cfg->num_channels, stream_id);
+
+	memset(&fmt, 0, sizeof(fmt));
+	q6asm_stream_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE, stream_id);
+	fmt.fmtblk.fmt_blk_size = sizeof(fmt) - sizeof(fmt.hdr) -
+				  sizeof(fmt.fmtblk);
+	fmt.compatible_version = cfg->compatible_version;
+	fmt.compression_level = cfg->compression_level;
+	fmt.format_flags = cfg->format_flags;
+	fmt.blocks_per_frame = cfg->blocks_per_frame;
+	fmt.final_frame_blocks = cfg->final_frame_blocks;
+	fmt.total_frames = cfg->total_frames;
+	fmt.bits_per_sample = cfg->bits_per_sample;
+	fmt.num_channels = cfg->num_channels;
+	fmt.sample_rate = cfg->sample_rate;
+	fmt.seek_table_present = cfg->seek_table_present;
 
 	return q6asm_stream_fmt_update(ac, &fmt.hdr, stream_id, __func__);
 }

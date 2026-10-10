@@ -87,7 +87,9 @@
 #define SND_AUDIOCODEC_MP2                   ((__u32) 0x00000016)
 #define SND_AUDIOCODEC_DTS_LBR_PASS_THROUGH  ((__u32) 0x00000017)
 #define SND_AUDIOCODEC_EAC3                  ((__u32) 0x00000018)
-#define SND_AUDIOCODEC_MAX  SND_AUDIOCODEC_EAC3
+#define SND_AUDIOCODEC_ALAC                  ((__u32) 0x00000019)
+#define SND_AUDIOCODEC_APE                   ((__u32) 0x0000001A)
+#define SND_AUDIOCODEC_MAX  SND_AUDIOCODEC_APE
 
 
 #define SND_AUDIOPROFILE_PCM                 ((__u32) 0x00000001)
@@ -276,6 +278,32 @@ struct snd_dec_flac {
 	__u16 min_frame_size;
 	__u16 max_frame_size;
 };
+struct snd_dec_alac {
+	__u32 frame_length;
+	__u8 compatible_version;
+	__u8 bit_depth;
+	__u8 pb;
+	__u8 mb;
+	__u8 kb;
+	__u8 num_channels;
+	__u16 max_run;
+	__u32 max_frame_bytes;
+	__u32 avg_bit_rate;
+	__u32 sample_rate;
+	__u32 channel_layout_tag;
+};
+struct snd_dec_ape {
+	__u16 compatible_version;
+	__u16 compression_level;
+	__u32 format_flags;
+	__u32 blocks_per_frame;
+	__u32 final_frame_blocks;
+	__u32 total_frames;
+	__u16 bits_per_sample;
+	__u16 num_channels;
+	__u32 sample_rate;
+	__u32 seek_table_present;
+};
 union snd_codec_options {
 	struct snd_enc_wma wma;
 	struct snd_enc_vorbis vorbis;
@@ -285,6 +313,8 @@ union snd_codec_options {
 	struct snd_dec_dts dts;
 	struct snd_dec_ddp ddp;
 	struct snd_dec_flac flac_dec;
+	struct snd_dec_alac alac;
+	struct snd_dec_ape ape;
 };
 
 

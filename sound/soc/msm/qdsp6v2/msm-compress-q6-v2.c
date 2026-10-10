@@ -490,6 +490,8 @@ static void populate_codec_list(struct msm_compr_audio *prtd)
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_EAC3);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_MP2);
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_FLAC);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_ALAC);
+	compr_cap_add_codec(cap, SND_AUDIOCODEC_APE);
 #ifdef CONFIG_HD_AUDIO
 	compr_cap_add_codec(cap, SND_AUDIOCODEC_PCM);
 #endif
@@ -502,6 +504,8 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 	struct msm_compr_audio *prtd = runtime->private_data;
 	struct asm_aac_cfg aac_cfg;
 	struct asm_flac_cfg flac_cfg;
+	struct asm_alac_cfg alac_cfg;
+	struct asm_ape_cfg ape_cfg;
 	const union snd_codec_options *opts = &prtd->codec_param.codec.options;
 	int ret = 0;
 
@@ -546,6 +550,44 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 		flac_cfg.max_frame_size = opts->flac_dec.max_frame_size;
 		ret = q6asm_stream_media_format_block_flac(prtd->audio_client,
 							   &flac_cfg, stream_id);
+		if (ret < 0)
+			pr_err("%s: CMD Format block failed ret %d\n",
+			       __func__, ret);
+		break;
+	case FORMAT_ALAC:
+		memset(&alac_cfg, 0x0, sizeof(struct asm_alac_cfg));
+		alac_cfg.num_channels = prtd->num_channels;
+		alac_cfg.sample_rate = prtd->sample_rate;
+		alac_cfg.frame_length = opts->alac.frame_length;
+		alac_cfg.compatible_version = opts->alac.compatible_version;
+		alac_cfg.bit_depth = opts->alac.bit_depth;
+		alac_cfg.pb = opts->alac.pb;
+		alac_cfg.mb = opts->alac.mb;
+		alac_cfg.kb = opts->alac.kb;
+		alac_cfg.max_run = opts->alac.max_run;
+		alac_cfg.max_frame_bytes = opts->alac.max_frame_bytes;
+		alac_cfg.avg_bit_rate = opts->alac.avg_bit_rate;
+		alac_cfg.channel_layout_tag = opts->alac.channel_layout_tag;
+		ret = q6asm_stream_media_format_block_alac(prtd->audio_client,
+							   &alac_cfg, stream_id);
+		if (ret < 0)
+			pr_err("%s: CMD Format block failed ret %d\n",
+			       __func__, ret);
+		break;
+	case FORMAT_APE:
+		memset(&ape_cfg, 0x0, sizeof(struct asm_ape_cfg));
+		ape_cfg.num_channels = prtd->num_channels;
+		ape_cfg.sample_rate = prtd->sample_rate;
+		ape_cfg.compatible_version = opts->ape.compatible_version;
+		ape_cfg.compression_level = opts->ape.compression_level;
+		ape_cfg.format_flags = opts->ape.format_flags;
+		ape_cfg.blocks_per_frame = opts->ape.blocks_per_frame;
+		ape_cfg.final_frame_blocks = opts->ape.final_frame_blocks;
+		ape_cfg.total_frames = opts->ape.total_frames;
+		ape_cfg.bits_per_sample = opts->ape.bits_per_sample;
+		ape_cfg.seek_table_present = opts->ape.seek_table_present;
+		ret = q6asm_stream_media_format_block_ape(prtd->audio_client,
+							  &ape_cfg, stream_id);
 		if (ret < 0)
 			pr_err("%s: CMD Format block failed ret %d\n",
 			       __func__, ret);
@@ -943,6 +985,23 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 		/* The DSP buffers in blocks; the smallest block bounds the wait. */
 		frame_sz = min_t(uint32_t, DSP_MAX_OUTPUT_FRAME_SZ,
 			prtd->codec_param.codec.options.flac_dec.min_blk_size);
+		break;
+	}
+
+	case SND_AUDIOCODEC_ALAC: {
+		pr_debug("SND_AUDIOCODEC_ALAC\n");
+		prtd->codec = FORMAT_ALAC;
+		/* The decoder buffers one ALAC frame of frame_length samples. */
+		frame_sz = min_t(uint32_t, DSP_MAX_OUTPUT_FRAME_SZ,
+			prtd->codec_param.codec.options.alac.frame_length);
+		break;
+	}
+
+	case SND_AUDIOCODEC_APE: {
+		pr_debug("SND_AUDIOCODEC_APE\n");
+		prtd->codec = FORMAT_APE;
+		frame_sz = min_t(uint32_t, DSP_MAX_OUTPUT_FRAME_SZ,
+			prtd->codec_param.codec.options.ape.blocks_per_frame);
 		break;
 	}
 
@@ -1645,6 +1704,16 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 		codec->descriptor[0].profiles = 0;
 		codec->descriptor[0].modes = 0;
 		codec->descriptor[0].formats = SND_AUDIOSTREAMFORMAT_FLAC;
+		break;
+	case SND_AUDIOCODEC_ALAC:
+	case SND_AUDIOCODEC_APE:
+		codec->num_descriptors = 1;
+		codec->descriptor[0].max_ch = 2;
+		codec->descriptor[0].sample_rates = SNDRV_PCM_RATE_8000_48000;
+		codec->descriptor[0].num_bitrates = 0;
+		codec->descriptor[0].profiles = 0;
+		codec->descriptor[0].modes = 0;
+		codec->descriptor[0].formats = 0;
 		break;
 #ifdef CONFIG_HD_AUDIO
 	case SND_AUDIOCODEC_PCM:
