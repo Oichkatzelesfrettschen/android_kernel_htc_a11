@@ -119,6 +119,8 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	}
 	case AUDIO_SET_AMRWBPLUS_CONFIG_V2: {
+		struct msm_audio_amrwbplus_config_v2 *wbplus_cfg;
+
 		if ((audio) && (arg) && (audio->codec_cfg)) {
 			if (copy_from_user(audio->codec_cfg, (void *)arg,
 			sizeof(struct msm_audio_amrwbplus_config_v2))) {
@@ -126,6 +128,12 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				pr_err("wb+ config set copy_to_user_failed");
 				break;
 			}
+			/* The configuration names the channel count; the
+			 * output rate stays at the AUDIO_SET_CONFIG value. */
+			wbplus_cfg = audio->codec_cfg;
+			if (q6asm_pcm_channels_supported(wbplus_cfg->num_channels))
+				audio->pcm_cfg.channel_count =
+					wbplus_cfg->num_channels;
 			} else {
 				pr_err("wb+ config invalid parameters..");
 				rc = -EFAULT;
