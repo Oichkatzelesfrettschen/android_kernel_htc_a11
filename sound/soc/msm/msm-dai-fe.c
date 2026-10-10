@@ -257,7 +257,12 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.rate_max =	48000,
 		},
 		.ops = &msm_fe_Multimedia_dai_ops,
+#ifdef CONFIG_ARCH_MSM8226
+		/* The "msm8226 Compr2" link runs MultiMedia6 on msm-compress-dsp,
+		 * which has no PCM ops. The MSM8960-family cards link it as a PCM
+		 * front end. */
 		.compress_dai = 1,
+#endif
 		.name = "MultiMedia6",
 	},
 	{
