@@ -41,6 +41,7 @@ enum {
 	USB_FUNCTION_AUDIO_SOURCE, 
 	USB_FUNCTION_PTP, 
 	USB_FUNCTION_HID,
+	USB_FUNCTION_MIDI,
 	USB_FUNCTION_AUTOBOT = 30,
 	USB_FUNCTION_RNDIS_IPT = 31,
 };
@@ -126,6 +127,10 @@ static struct usb_string_node usb_string_array[] = {
 	{
 		.usb_function_flag = 1 << USB_FUNCTION_HID,
 		.name = "hid",
+	},
+	{
+		.usb_function_flag = 1 << USB_FUNCTION_MIDI,
+		.name = "midi",
 	},
 
 };
@@ -527,6 +532,10 @@ int android_switch_function(unsigned func)
 				pr_err("android_switch_function: Cannot add %s\n", f->name);
 
 		} else if ((func & (1 << USB_FUNCTION_HID)) && !strcmp(f->name, "hid")) {
+			if (android_usb_function_holder_list_add_tail(f, &conf->enabled_functions, dev))
+				pr_err("android_switch_function: Cannot add %s\n", f->name);
+
+		} else if ((func & (1 << USB_FUNCTION_MIDI)) && !strcmp(f->name, "midi")) {
 			if (android_usb_function_holder_list_add_tail(f, &conf->enabled_functions, dev))
 				pr_err("android_switch_function: Cannot add %s\n", f->name);
 
