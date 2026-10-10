@@ -89,6 +89,8 @@ struct f_midi {
 	int index;
 	char *id;
 	unsigned int buflen, qlen;
+	/* set at unbind: no further tasklet or endpoint use */
+	bool unbound;
 };
 
 static inline struct f_midi *func_to_midi(struct usb_function *f)
@@ -401,6 +403,27 @@ static void f_midi_disable(struct usb_function *f)
 	usb_ep_disable(midi->out_ep);
 }
 
+/*
+ * The f_midi instance outlives the function: an open rawmidi file keeps
+ * rmidi->private_data pointing at it until the last close, so the sound card
+ * owns the instance and releases it from private_free.
+ */
+static void f_midi_free(struct f_midi *midi)
+{
+	int i;
+
+	tasklet_kill(&midi->tasklet);
+	for (i = 0; i < MAX_PORTS; i++)
+		kfree(midi->in_port[i]);
+	kfree(midi->id);
+	kfree(midi);
+}
+
+static void f_midi_card_free(struct snd_card *card)
+{
+	f_midi_free(card->private_data);
+}
+
 static void f_midi_unbind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct usb_composite_dev *cdev = f->config->cdev;
@@ -412,17 +435,28 @@ static void f_midi_unbind(struct usb_configuration *c, struct usb_function *f)
 	/* just to be sure */
 	f_midi_disable(f);
 
+	/*
+	 * Refuse new opens and further file operations, then stop the transmit
+	 * tasklet; snd_card_free_when_closed() does not wait for open files.
+	 */
+	midi->unbound = true;
 	card = midi->card;
 	midi->card = NULL;
 	if (card)
-		snd_card_free(card);
-
-	kfree(midi->id);
-	midi->id = NULL;
+		snd_card_disconnect(card);
+	tasklet_kill(&midi->tasklet);
+	midi->in_ep = NULL;
+	midi->out_ep = NULL;
 
 	usb_free_descriptors(f->descriptors);
+	f->descriptors = NULL;
 	usb_free_descriptors(f->hs_descriptors);
-	kfree(midi);
+	f->hs_descriptors = NULL;
+
+	if (card)
+		snd_card_free_when_closed(card);
+	else
+		f_midi_free(midi);
 }
 
 static int f_midi_snd_free(struct snd_device *device)
@@ -621,7 +655,7 @@ static void f_midi_in_trigger(struct snd_rawmidi_substream *substream, int up)
 
 	VDBG(midi, "%s() %d\n", __func__, up);
 	midi->in_port[substream->number]->active = up;
-	if (up)
+	if (up && !midi->unbound)
 		tasklet_hi_schedule(&midi->tasklet);
 }
 
@@ -726,6 +760,10 @@ static int f_midi_register_card(struct f_midi *midi)
 		ERROR(midi, "snd_card_register() failed\n");
 		goto fail;
 	}
+
+	/* from here the card owns the instance until it is freed */
+	card->private_data = midi;
+	card->private_free = f_midi_card_free;
 
 	VDBG(midi, "%s() finished ok\n", __func__);
 	return 0;
@@ -968,6 +1006,9 @@ int /* __init */ f_midi_bind_config(struct usb_configuration *c,
 		goto fail;
 	}
 
+	midi->gadget = c->cdev->gadget;
+	tasklet_init(&midi->tasklet, f_midi_in_tasklet, (unsigned long) midi);
+
 	for (i = 0; i < in_ports; i++) {
 		struct gmidi_in_port *port = kzalloc(sizeof(*port), GFP_KERNEL);
 		if (!port) {
@@ -981,11 +1022,12 @@ int /* __init */ f_midi_bind_config(struct usb_configuration *c,
 		midi->in_port[i] = port;
 	}
 
-	midi->gadget = c->cdev->gadget;
-	tasklet_init(&midi->tasklet, f_midi_in_tasklet, (unsigned long) midi);
-
 	/* set up ALSA midi devices */
 	midi->id = kstrdup(id, GFP_KERNEL);
+	if (!midi->id) {
+		status = -ENOMEM;
+		goto setup_fail;
+	}
 	midi->index = index;
 	midi->buflen = buflen;
 	midi->qlen = qlen;
@@ -1004,7 +1046,7 @@ int /* __init */ f_midi_bind_config(struct usb_configuration *c,
 
 	status = usb_add_function(c, &midi->func);
 	if (status)
-		goto setup_fail;
+		goto card_fail;
 
 
 	if (config) {
@@ -1014,10 +1056,13 @@ int /* __init */ f_midi_bind_config(struct usb_configuration *c,
 
 	return 0;
 
+card_fail:
+	/* the registered card owns midi; its private_free releases it */
+	snd_card_free_when_closed(midi->card);
+	return status;
+
 setup_fail:
-	for (--i; i >= 0; i--)
-		kfree(midi->in_port[i]);
-	kfree(midi);
+	f_midi_free(midi);
 fail:
 	return status;
 }
