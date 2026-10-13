@@ -116,16 +116,38 @@ check_pending:
 			spin_unlock_irqrestore(&apr_ch->lock, flags);
 			return;
 		}
-		r_len = smd_read_from_cb(apr_ch->ch, apr_ch->data, len);
-		if (len != r_len) {
+		if (len > sz) {
+			pr_err("apr_tal: Read availability exceeds packet remainder\n");
+			spin_unlock_irqrestore(&apr_ch->lock, flags);
+			return;
+		}
+		if (sz > sizeof(apr_ch->data) - apr_ch->received_bytes) {
+			/* Drain the whole packet across notifications before parsing again. */
+			apr_ch->discard_packet = true;
+			apr_ch->received_bytes = 0;
+		}
+		r_len = smd_read_from_cb(apr_ch->ch,
+			apr_ch->discard_packet ? NULL :
+			apr_ch->data + apr_ch->received_bytes, len);
+		if (r_len <= 0 || r_len > len) {
 			pr_err("apr_tal: Invalid Read\n");
 			spin_unlock_irqrestore(&apr_ch->lock, flags);
 			return;
 		}
-		pkt_cnt++;
-		pr_debug("%d %d %d\n", len, sz, pkt_cnt);
-		if (apr_ch->func)
-			apr_ch->func(apr_ch->data, r_len, apr_ch->priv);
+		if (!apr_ch->discard_packet)
+			apr_ch->received_bytes += r_len;
+		if (r_len == sz) {
+			pkt_cnt++;
+			if (!apr_ch->discard_packet && apr_ch->func)
+				apr_ch->func(apr_ch->data,
+					apr_ch->received_bytes, apr_ch->priv);
+			apr_ch->received_bytes = 0;
+			apr_ch->discard_packet = false;
+		}
+		if (r_len != len) {
+			spin_unlock_irqrestore(&apr_ch->lock, flags);
+			return;
+		}
 		goto check_pending;
 check_write_avail:
 		if (smd_write_avail(apr_ch->ch))
@@ -133,11 +155,19 @@ check_write_avail:
 		spin_unlock_irqrestore(&apr_ch->lock, flags);
 		break;
 	case SMD_EVENT_OPEN:
+		spin_lock_irqsave(&apr_ch->lock, flags);
+		apr_ch->received_bytes = 0;
+		apr_ch->discard_packet = false;
+		spin_unlock_irqrestore(&apr_ch->lock, flags);
 		pr_debug("apr_tal: SMD_EVENT_OPEN\n");
 		apr_ch->smd_state = 1;
 		wake_up(&apr_ch->wait);
 		break;
 	case SMD_EVENT_CLOSE:
+		spin_lock_irqsave(&apr_ch->lock, flags);
+		apr_ch->received_bytes = 0;
+		apr_ch->discard_packet = false;
+		spin_unlock_irqrestore(&apr_ch->lock, flags);
 		pr_debug("apr_tal: SMD_EVENT_CLOSE\n");
 		break;
 	}
