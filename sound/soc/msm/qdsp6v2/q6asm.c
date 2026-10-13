@@ -2959,20 +2959,12 @@ static int __q6asm_media_format_block_multi_aac(struct audio_client *ac,
 				struct asm_aac_cfg *cfg, int stream_id)
 {
 	struct asm_aac_fmt_blk_v2 fmt;
-	int rc = 0;
 
 	pr_debug("%s:session[%d]rate[%d]ch[%d]\n", __func__, ac->session,
 		cfg->sample_rate, cfg->ch_cfg);
 
 	q6asm_stream_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE, stream_id);
 
-	if (ac->io_mode & COMPRESSED_STREAM_IO)
-		fmt.hdr.token = ((ac->session << 8) & 0xFFFF00) |
-				(stream_id & 0xFF);
-
-	pr_info("%s: token = 0x%x, stream_id  %d, session 0x%x\n",
-		  __func__, fmt.hdr.token, stream_id, ac->session);
-	fmt.hdr.opcode = ASM_DATA_CMD_MEDIA_FMT_UPDATE_V2;
 	fmt.fmt_blk.fmt_blk_size = sizeof(fmt) - sizeof(fmt.hdr) -
 					sizeof(fmt.fmt_blk);
 	fmt.aac_fmt_flag = cfg->format;
@@ -2988,20 +2980,7 @@ static int __q6asm_media_format_block_multi_aac(struct audio_client *ac,
 			fmt.audio_objype,
 			fmt.channel_config,
 			fmt.sample_rate);
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &fmt);
-	if (rc < 0) {
-		pr_err("%s:Comamnd open failed\n", __func__);
-		goto fail_cmd;
-	}
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 5*HZ);
-	if (!rc) {
-		pr_err("%s:timeout. waited for FORMAT_UPDATE\n", __func__);
-		goto fail_cmd;
-	}
-	return 0;
-fail_cmd:
-	return -EINVAL;
+	return q6asm_stream_fmt_update(ac, &fmt.hdr, stream_id, __func__);
 }
 
 int q6asm_media_format_block_multi_aac(struct audio_client *ac,
