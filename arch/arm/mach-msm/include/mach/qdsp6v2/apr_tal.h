@@ -50,6 +50,8 @@ struct apr_svc_ch_dev {
 	uint32_t           smd_state;
 	wait_queue_head_t  dest;
 	uint32_t           dest_state;
+	int                received_bytes;
+	bool               discard_packet;
 };
 
 #endif

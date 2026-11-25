@@ -43,6 +43,9 @@
 #include <sound/q6audio-v2.h>
 #include <sound/adsp_err.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/q6asm.h>
+
 #include "audio_acdb.h"
 
 #include <mach/htc_acoustic_alsa.h>
@@ -68,6 +71,39 @@ struct asm_buffer_node {
 	uint32_t  buf_addr_lsw;
 	uint32_t  mmap_hdl;
 };
+static bool q6asm_payload_valid(const struct apr_client_data *data)
+{
+	unsigned int required_bytes = 0;
+
+	if (data->payload_size && !data->payload)
+		return false;
+	switch (data->opcode) {
+	case APR_BASIC_RSP_RESULT:
+		required_bytes = 2 * sizeof(uint32_t);
+		break;
+	case ASM_CMDRSP_SHARED_MEM_MAP_REGIONS:
+	case ASM_STREAM_CMDRSP_GET_PP_PARAMS_V2:
+		required_bytes = sizeof(uint32_t);
+		break;
+	case ASM_DATA_EVENT_READ_DONE_V2:
+		required_bytes = sizeof(struct asm_data_event_read_done_v2);
+		break;
+	case ASM_DATA_EVENT_WRITE_DONE_V2:
+		required_bytes = sizeof(struct asm_data_event_write_done_v2);
+		break;
+	case ASM_SESSION_CMDRSP_GET_SESSIONTIME_V3:
+		required_bytes = sizeof(struct asm_session_cmdrsp_get_sessiontime_v3);
+		break;
+	case ASM_DATA_EVENT_SR_CM_CHANGE_NOTIFY:
+		required_bytes = sizeof(struct asm_data_event_sr_cm_change_notify);
+		break;
+	case ASM_DATA_EVENT_ENC_SR_CM_CHANGE_NOTIFY:
+		required_bytes = sizeof(struct asm_data_event_enc_sr_cm_change_notify);
+		break;
+	}
+	return data->payload_size >= required_bytes;
+}
+
 static int32_t q6asm_srvc_callback(struct apr_client_data *data, void *priv);
 static int32_t q6asm_callback(struct apr_client_data *data, void *priv);
 static void q6asm_add_hdr(struct audio_client *ac, struct apr_hdr *hdr,
@@ -1114,6 +1150,11 @@ static int32_t q6asm_srvc_callback(struct apr_client_data *data, void *priv)
 		return 0;
 	}
 
+	if (!q6asm_payload_valid(data)) {
+		pr_err("%s: Truncated ASM payload\n", __func__);
+		return -EINVAL;
+	}
+
 	payload = data->payload;
 
 	if (data->opcode == RESET_EVENTS) {
@@ -1136,11 +1177,9 @@ static int32_t q6asm_srvc_callback(struct apr_client_data *data, void *priv)
 		pr_debug("%s: session[%d] already freed\n", __func__, sid);
 		return 0;
 	}
-	pr_debug("%s:ptr0[0x%x]ptr1[0x%x]opcode[0x%x] token[0x%x]payload_s[%d] src[%d] dest[%d]sid[%d]dir[%d]\n",
-		__func__, payload[0], payload[1], data->opcode, data->token,
-		data->payload_size, data->src_port, data->dest_port, sid, dir);
-	pr_debug("%s:Payload = [0x%x] status[0x%x]\n",
-			__func__, payload[0], payload[1]);
+	if (data->payload_size >= 2 * sizeof(*payload))
+		pr_debug("%s:payload[0x%x 0x%x] opcode[0x%x] token[0x%x]\n",
+			__func__, payload[0], payload[1], data->opcode, data->token);
 
 	if (data->opcode == APR_BASIC_RSP_RESULT) {
 		switch (payload[0]) {
@@ -1172,8 +1211,8 @@ static int32_t q6asm_srvc_callback(struct apr_client_data *data, void *priv)
 
 	switch (data->opcode) {
 	case ASM_CMDRSP_SHARED_MEM_MAP_REGIONS:{
-		pr_debug("%s:PL#0[0x%x]PL#1 [0x%x] dir=%x s_id=%x\n",
-				__func__, payload[0], payload[1], dir, sid);
+		pr_debug("%s:map_handle[0x%x] dir=%x s_id=%x\n",
+				__func__, payload[0], dir, sid);
 		spin_lock_irqsave(&port->dsp_lock, dsp_flags);
 		if (atomic_read(&ac->cmd_state)) {
 			ac->port[dir].tmp_hdl = payload[0];
@@ -1184,8 +1223,7 @@ static int32_t q6asm_srvc_callback(struct apr_client_data *data, void *priv)
 		break;
 	}
 	case ASM_CMD_SHARED_MEM_UNMAP_REGIONS:{
-		pr_debug("%s:PL#0[0x%x]PL#1 [0x%x]\n",
-					__func__, payload[0], payload[1]);
+		pr_debug("%s:shared memory unmap completed\n", __func__);
 		spin_lock_irqsave(&port->dsp_lock, dsp_flags);
 		if (atomic_read(&ac->cmd_state)) {
 			atomic_set(&ac->cmd_state, 0);
@@ -1196,8 +1234,7 @@ static int32_t q6asm_srvc_callback(struct apr_client_data *data, void *priv)
 		break;
 	}
 	default:
-		pr_debug("%s:command[0x%x]success [0x%x]\n",
-					__func__, payload[0], payload[1]);
+		pr_debug("%s:opcode[0x%x] completed\n", __func__, data->opcode);
 	}
 	if (ac->cb)
 		ac->cb(data->opcode, data->token,
@@ -1247,6 +1284,11 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 		return -EINVAL;
 	}
 
+	if (!q6asm_payload_valid(data)) {
+		pr_err("%s: Truncated ASM payload\n", __func__);
+		return -EINVAL;
+	}
+
 	payload = data->payload;
 	if ((atomic_read(&ac->nowait_cmd_cnt) > 0) &&
 		is_no_wait_cmd_rsp(data->opcode, payload)) {
@@ -1273,9 +1315,7 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 		ac->session, data->opcode,
 		data->token, data->payload_size, data->src_port,
 		data->dest_port);
-	if ((data->opcode != ASM_DATA_EVENT_RENDERED_EOS) &&
-	    (data->opcode != ASM_DATA_EVENT_EOS) &&
-	    (data->opcode != ASM_SESSION_EVENT_RX_UNDERFLOW))
+	if (data->payload_size >= 2 * sizeof(*payload))
 		pr_debug("%s:Payload = [0x%x] status[0x%x]\n",
 			__func__, payload[0], payload[1]);
 	if (data->opcode == APR_BASIC_RSP_RESULT) {
@@ -1393,6 +1433,8 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 
 		struct audio_port_data *port = &ac->port[OUT];
 
+		trace_q6asm_read_done(ac->priv, ac, data->token,
+			data->payload_size, payload);
 		config_debug_fs_read_cb();
 
 		pr_debug("%s:R-D: status=%d buff_add=%x act_size=%d offset=%d\n",
@@ -2959,20 +3001,12 @@ static int __q6asm_media_format_block_multi_aac(struct audio_client *ac,
 				struct asm_aac_cfg *cfg, int stream_id)
 {
 	struct asm_aac_fmt_blk_v2 fmt;
-	int rc = 0;
 
 	pr_debug("%s:session[%d]rate[%d]ch[%d]\n", __func__, ac->session,
 		cfg->sample_rate, cfg->ch_cfg);
 
 	q6asm_stream_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE, stream_id);
 
-	if (ac->io_mode & COMPRESSED_STREAM_IO)
-		fmt.hdr.token = ((ac->session << 8) & 0xFFFF00) |
-				(stream_id & 0xFF);
-
-	pr_info("%s: token = 0x%x, stream_id  %d, session 0x%x\n",
-		  __func__, fmt.hdr.token, stream_id, ac->session);
-	fmt.hdr.opcode = ASM_DATA_CMD_MEDIA_FMT_UPDATE_V2;
 	fmt.fmt_blk.fmt_blk_size = sizeof(fmt) - sizeof(fmt.hdr) -
 					sizeof(fmt.fmt_blk);
 	fmt.aac_fmt_flag = cfg->format;
@@ -2988,20 +3022,7 @@ static int __q6asm_media_format_block_multi_aac(struct audio_client *ac,
 			fmt.audio_objype,
 			fmt.channel_config,
 			fmt.sample_rate);
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &fmt);
-	if (rc < 0) {
-		pr_err("%s:Comamnd open failed\n", __func__);
-		goto fail_cmd;
-	}
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 5*HZ);
-	if (!rc) {
-		pr_err("%s:timeout. waited for FORMAT_UPDATE\n", __func__);
-		goto fail_cmd;
-	}
-	return 0;
-fail_cmd:
-	return -EINVAL;
+	return q6asm_stream_fmt_update(ac, &fmt.hdr, stream_id, __func__);
 }
 
 int q6asm_media_format_block_multi_aac(struct audio_client *ac,

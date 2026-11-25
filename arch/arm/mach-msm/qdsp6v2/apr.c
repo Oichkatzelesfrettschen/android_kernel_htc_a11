@@ -317,7 +317,7 @@ int apr_send_pkt(void *handle, uint32_t *buf)
 
 void apr_cb_func(void *buf, int len, void *priv)
 {
-	struct apr_client_data data;
+	struct apr_client_data data = {0};
 	struct apr_client *apr_client;
 	struct apr_svc *c_svc;
 	struct apr_hdr *hdr;
@@ -331,15 +331,7 @@ void apr_cb_func(void *buf, int len, void *priv)
 	int temp_port = 0;
 	uint32_t *ptr;
 
-	pr_debug("APR2: len = %d\n", len);
-	ptr = buf;
-	pr_debug("\n*****************\n");
-	for (i = 0; i < len/4; i++)
-		pr_debug("%x  ", ptr[i]);
-	pr_debug("\n");
-	pr_debug("\n*****************\n");
-
-	if (!buf || len <= APR_HDR_SIZE) {
+	if (!buf || len < APR_HDR_SIZE) {
 		pr_err("APR: Improper apr pkt received:%p %d\n", buf, len);
 		return;
 	}
@@ -359,10 +351,15 @@ void apr_cb_func(void *buf, int len, void *priv)
 		return;
 	}
 
-	if (hdr->pkt_size < APR_HDR_SIZE) {
-		pr_err("APR: Wrong paket size\n");
+	if (hdr_size > hdr->pkt_size || hdr->pkt_size > len) {
+		pr_err("APR: Packet extent exceeds received bytes\n");
 		return;
 	}
+
+	ptr = buf;
+	pr_debug("APR2: len = %d\n", len);
+	for (i = 0; i < hdr->pkt_size / sizeof(*ptr); i++)
+		pr_debug("%x  ", ptr[i]);
 	msg_type = hdr->hdr_field;
 	msg_type = (msg_type >> 0x08) & 0x0003;
 	if (msg_type >= APR_MSG_TYPE_MAX) {
@@ -426,6 +423,8 @@ void apr_cb_func(void *buf, int len, void *priv)
 	pr_debug("svc_idx = %d\n", i);
 	pr_debug("%x %x %x %p %p\n", c_svc->id, c_svc->dest_id,
 		 c_svc->client_id, c_svc->fn, c_svc->priv);
+	data.hdr_len = hdr_size;
+	data.dest_svc = svc;
 	data.payload_size = hdr->pkt_size - hdr_size;
 	data.opcode = hdr->opcode;
 	data.src = src;
@@ -437,6 +436,10 @@ void apr_cb_func(void *buf, int len, void *priv)
 		data.payload = (char *)hdr + hdr_size;
 
 	temp_port = ((data.src_port >> 8) * 8) + (data.src_port & 0xFF);
+	if (c_svc->port_cnt && temp_port >= APR_MAX_PORTS) {
+		pr_err("APR: Source port exceeds callback table\n");
+		return;
+	}
 	pr_debug("port = %d t_port = %d\n", data.src_port, temp_port);
 	if (c_svc->port_cnt && c_svc->port_fn[temp_port])
 		c_svc->port_fn[temp_port](&data,  c_svc->port_priv[temp_port]);
@@ -579,7 +582,7 @@ static int adsp_state(int state)
 void dispatch_event(unsigned long code, unsigned short proc)
 {
 	struct apr_client *apr_client;
-	struct apr_client_data data;
+	struct apr_client_data data = {0};
 	struct apr_svc *svc;
 	uint16_t clnt;
 	int i, j;
