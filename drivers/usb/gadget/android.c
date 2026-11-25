@@ -2534,6 +2534,15 @@ static void midi_function_cleanup(struct android_usb_function *f)
 	kfree(f->config);
 }
 
+static void midi_function_unbind_config(struct android_usb_function *f,
+						struct usb_configuration *c)
+{
+	struct midi_alsa_config *config = f->config;
+
+	config->card = -1;
+	config->device = -1;
+}
+
 static int midi_function_bind_config(struct android_usb_function *f,
 						struct usb_configuration *c)
 {
@@ -2566,6 +2575,7 @@ static struct android_usb_function midi_function = {
 	.init		= midi_function_init,
 	.cleanup	= midi_function_cleanup,
 	.bind_config	= midi_function_bind_config,
+	.unbind_config	= midi_function_unbind_config,
 	.attributes	= midi_function_attributes,
 };
 #endif

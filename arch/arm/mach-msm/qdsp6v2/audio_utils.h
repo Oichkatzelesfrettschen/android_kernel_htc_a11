@@ -68,6 +68,10 @@ struct q6audio_in {
 	void				*enc_cfg;
 	struct msm_audio_buf_cfg        buf_cfg;
 	struct msm_audio_config		pcm_cfg;
+	/* AUDIO_SET_CONFIG set the PCM channel count or rate; an encoder
+	 * configuration ioctl leaves an explicit value in place. */
+	bool				pcm_channels_explicit;
+	bool				pcm_rate_explicit;
 	void				*codec_cfg;
 
 	/* number of buffers available to read/write */

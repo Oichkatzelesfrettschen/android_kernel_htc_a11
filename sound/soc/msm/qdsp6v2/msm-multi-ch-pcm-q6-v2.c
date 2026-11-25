@@ -235,8 +235,10 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
 	ret = q6asm_media_format_block_pcm_format_support(
 			prtd->audio_client, runtime->rate,
 			runtime->channels, bits_per_sample);
-	if (ret < 0)
-		pr_info("%s: CMD Format block failed\n", __func__);
+	if (ret < 0) {
+		pr_err("%s: CMD Format block failed %d\n", __func__, ret);
+		return ret;
+	}
 
 	atomic_set(&prtd->out_count, runtime->periods);
 
@@ -269,8 +271,10 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	pr_debug("Channel = %d\n", prtd->channel_mode);
 	ret = q6asm_enc_cfg_blk_pcm(prtd->audio_client, prtd->samp_rate,
 					prtd->channel_mode);
-	if (ret < 0)
-		pr_debug("%s: cmd cfg pcm was block failed", __func__);
+	if (ret < 0) {
+		pr_err("%s: cmd cfg pcm block failed %d\n", __func__, ret);
+		return ret;
+	}
 
 	for (i = 0; i < runtime->periods; i++)
 		q6asm_read(prtd->audio_client);

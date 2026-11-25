@@ -151,6 +151,10 @@ struct q6audio_aio {
 	struct msm_audio_stream_config str_cfg;
 	struct msm_audio_buf_cfg        buf_cfg;
 	struct msm_audio_config pcm_cfg;
+	/* AUDIO_SET_CONFIG set the PCM channel count or rate; a codec
+	 * configuration ioctl leaves an explicit value in place. */
+	bool pcm_channels_explicit;
+	bool pcm_rate_explicit;
 	void *codec_cfg;
 
 	struct audio_client *ac;

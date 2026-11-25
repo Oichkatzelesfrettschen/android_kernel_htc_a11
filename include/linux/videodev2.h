@@ -346,6 +346,7 @@ struct v4l2_pix_format {
 #define V4L2_PIX_FMT_VP8 v4l2_fourcc('V', 'P', '8', '0') 
 #define V4L2_PIX_FMT_HEVC v4l2_fourcc('H', 'E', 'V', 'C') 
 #define V4L2_PIX_FMT_HEVC_HYBRID v4l2_fourcc('H', 'V', 'C', 'H')
+#define V4L2_PIX_FMT_SPK v4l2_fourcc('S', 'P', 'K', '0') /* Sorenson Spark */
 
 #define V4L2_PIX_FMT_CPIA1    v4l2_fourcc('C', 'P', 'I', 'A') 
 #define V4L2_PIX_FMT_WNVA     v4l2_fourcc('W', 'N', 'V', 'A') 
@@ -1688,6 +1689,31 @@ enum v4l2_mpeg_vidc_video_ltrmode {
 
 #define V4L2_CID_MPEG_VIDC_VIDEO_BUFFER_SIZE_LIMIT \
 		(V4L2_CID_MPEG_MSM_VIDC_BASE + 48)
+
+/* Names and enumerators follow the msm-3.10 vidc header. BASE+34 and
+ * BASE+35 are taken here by DEINTERLACE and STREAM_OUTPUT_MODE, so the two
+ * H264 and text-quality controls use BASE+76 and BASE+77; the timestamp mode
+ * keeps its msm-3.10 number. */
+#define V4L2_CID_MPEG_VIDC_VIDEO_H264_VUI_BITSTREAM_RESTRICT \
+		(V4L2_CID_MPEG_MSM_VIDC_BASE + 76)
+enum v4l2_mpeg_vidc_video_h264_vui_bitstream_restrict {
+	V4L2_MPEG_VIDC_VIDEO_H264_VUI_BITSTREAM_RESTRICT_DISABLED = 0,
+	V4L2_MPEG_VIDC_VIDEO_H264_VUI_BITSTREAM_RESTRICT_ENABLED = 1
+};
+
+#define V4L2_CID_MPEG_VIDC_VIDEO_PRESERVE_TEXT_QUALITY \
+		(V4L2_CID_MPEG_MSM_VIDC_BASE + 77)
+enum v4l2_mpeg_vidc_video_preserve_text_quality {
+	V4L2_MPEG_VIDC_VIDEO_PRESERVE_TEXT_QUALITY_DISABLED = 0,
+	V4L2_MPEG_VIDC_VIDEO_PRESERVE_TEXT_QUALITY_ENABLED = 1
+};
+
+#define V4L2_CID_MPEG_VIDC_VIDEO_RATE_CONTROL_TIMESTAMP_MODE \
+		(V4L2_CID_MPEG_MSM_VIDC_BASE + 52)
+enum v4l2_mpeg_vidc_video_rate_control_timestamp_mode {
+	V4L2_MPEG_VIDC_VIDEO_RATE_CONTROL_TIMESTAMP_MODE_HONOR = 0,
+	V4L2_MPEG_VIDC_VIDEO_RATE_CONTROL_TIMESTAMP_MODE_IGNORE = 1,
+};
 
 #define V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY \
 		(V4L2_CID_MPEG_MSM_VIDC_BASE + 73)

@@ -730,6 +730,9 @@ void __init htc_8226_init(void)
 	msm8226_htc_init_gpiomux();
 	board_dt_populate(adata);
 	htc_8226_add_drivers();
+#ifdef CONFIG_LCD_KCAL
+	add_lcd_kcal_devices();
+#endif
 #ifdef CONFIG_HTC_BUILD_EDIAG
 	platform_device_register(&android_pmem_ediag_device);
 	platform_device_register(&android_pmem_ediag1_device);

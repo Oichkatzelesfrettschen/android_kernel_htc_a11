@@ -209,6 +209,14 @@ static long aac_in_ioctl(struct file *file,
 		}
 		enc_cfg->sample_rate = cfg.sample_rate;
 		enc_cfg->channels = cfg.channels;
+		/* The PCM block sent at AUDIO_START describes the encoder
+		 * input: the encoder's rate and channel count (CH_MODE_MONO
+		 * and CH_MODE_STEREO equal the counts 1 and 2) unless
+		 * AUDIO_SET_CONFIG declares otherwise. */
+		if (!audio->pcm_rate_explicit)
+			audio->pcm_cfg.sample_rate = enc_cfg->sample_rate;
+		if (!audio->pcm_channels_explicit)
+			audio->pcm_cfg.channel_count = enc_cfg->channels;
 		enc_cfg->bit_rate = cfg.bit_rate;
 		enc_cfg->stream_format =
 			((cfg.stream_format == AUDIO_AAC_FORMAT_RAW) ? \
@@ -321,6 +329,8 @@ static int aac_in_open(struct inode *inode, struct file *file)
 	audio->buf_cfg.frames_per_buf   = 0x01;
 	audio->pcm_cfg.buffer_count = PCM_BUF_COUNT;
 	audio->pcm_cfg.buffer_size  = PCM_BUF_SIZE;
+	audio->pcm_cfg.sample_rate = enc_cfg->sample_rate;
+	audio->pcm_cfg.channel_count = enc_cfg->channels;
 	aac_config->format = AUDIO_AAC_FORMAT_ADTS;
 	aac_config->audio_object = AUDIO_AAC_OBJECT_LC;
 	aac_config->sbr_on_flag = 0;

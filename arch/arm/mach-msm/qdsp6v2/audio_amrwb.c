@@ -84,6 +84,8 @@ static int audio_open(struct inode *inode, struct file *file)
 		return -ENOMEM;
 	}
 	audio->pcm_cfg.buffer_size = PCM_BUFSZ_MIN;
+	audio->pcm_cfg.sample_rate = 16000;
+	audio->pcm_cfg.channel_count = 1;
 
 	audio->ac = q6asm_audio_client_alloc((app_cb) q6_audio_cb,
 					     (void *)audio);
